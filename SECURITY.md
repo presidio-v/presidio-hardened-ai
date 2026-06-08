@@ -105,15 +105,16 @@ changing the `EvidenceRef` shape, which matches the
   `dpsgd_epsilon` — so the accounting cannot silently diverge between backends.
 
 
-### Public-key evidence signing (v0.7.0)
+### Public-key evidence signing (v0.7.0–v0.8.0)
 
 - **Ed25519 (RFC 8032)** detached signatures are available alongside HMAC for evidence,
   over the same canonical `{content_hash, signer}` message (drop-in at the wire level).
 - **Asymmetric trust:** the producer holds the private key; a verifier holds only the
   public key. The signing algorithm is a property of the verifier's trust entry, so the
   `EvidenceRef` contract is unchanged.
-- **Default stays HMAC** until consumers verify Ed25519, avoiding any break to the live
-  governance loop; the switch is opt-in via `--algorithm ed25519`.
+- **Ed25519 is the default (v0.8.0)**, coordinated with ikigov v0.14.0 public-key
+  verification; HMAC remains available via `--algorithm hmac-sha256`. Deploy the v0.14.0
+  verifier before/with this flip so the live loop never sees evidence it cannot check.
 - `cryptography` is an optional `[crypto]` extra; Ed25519 calls raise a clear ImportError
   without it. A fixed-key golden vector locks the wire format across repos.
 

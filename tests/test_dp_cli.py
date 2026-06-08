@@ -66,6 +66,8 @@ def test_dp_charge_and_budget(tmp_path, monkeypatch):
             "1e-5",
             "--evidence-out",
             str(evidence),
+            "--algorithm",
+            "hmac-sha256",
             "--quiet",
         ],
     )

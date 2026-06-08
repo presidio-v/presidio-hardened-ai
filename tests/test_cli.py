@@ -45,6 +45,8 @@ def test_ingest_end_to_end(tmp_path, monkeypatch):
             str(evidence),
             "--use-case",
             "fraud",
+            "--algorithm",
+            "hmac-sha256",
             "--quiet",
         ],
     )
