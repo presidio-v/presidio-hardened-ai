@@ -8,7 +8,9 @@
 **Amends:** [ADR-0001](0001-multiparty-secure-aggregation.md) — extends its threat model
 from honest-but-curious to malicious; does not change the v1 mechanism (additive masking).
 **Amended by:** [ADR-0003](0003-bounded-norm-input-validation.md) — adds *input honesty*
-(bounded-norm ZK proofs) on top of the protocol honesty secured here.
+(bounded-norm ZK proofs) on top of the protocol honesty secured here; and
+[ADR-0006](0006-guaranteed-output-delivery.md) — upgrades security-with-abort to guaranteed
+output delivery (liveness under an honest majority).
 
 > **Implementation status (v0.16.0–v0.18.0).** Accepted; Option A built (security-with-abort). v0.16.0 ships the
 > verifiable primitives in `presidio_ai.fl.commit` — Pedersen commitments (additively
