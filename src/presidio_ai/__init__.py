@@ -11,14 +11,17 @@ counts, and structural metadata are recorded, never raw PII or organisational da
 
 from __future__ import annotations
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 from presidio_ai.dp import DPResult, DPSGDConfig, EpsilonBudget, dpsgd_epsilon, plan_privacy
 from presidio_ai.evidence import (
     EvidenceRef,
     build_dp_evidence,
     build_ingest_evidence,
+    generate_ed25519_keypair,
+    sign_ed25519,
     sign_evidence,
+    verify_ed25519,
     verify_evidence,
 )
 from presidio_ai.ingest import IngestResult, ingest_records
@@ -39,6 +42,9 @@ __all__ = [
     "build_dp_evidence",
     "sign_evidence",
     "verify_evidence",
+    "generate_ed25519_keypair",
+    "sign_ed25519",
+    "verify_ed25519",
     "DPResult",
     "DPSGDConfig",
     "EpsilonBudget",

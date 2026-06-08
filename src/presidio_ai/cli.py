@@ -31,7 +31,12 @@ from presidio_ai.dp import (
     request_hash,
     sign_approval,
 )
-from presidio_ai.evidence import build_dp_evidence, build_ingest_evidence, export_evidence
+from presidio_ai.evidence import (
+    build_dp_evidence,
+    build_ingest_evidence,
+    export_evidence,
+    generate_ed25519_keypair,
+)
 from presidio_ai.fl import (
     FedAvgAggregator,
     FederatedClient,
@@ -67,6 +72,20 @@ def _resolve_key(key: str | None) -> str:
     return resolved
 
 
+def _resolve_signing(algorithm: str, ledger_key: str, signing_key: str | None) -> tuple[str, str]:
+    """Pick the evidence signing (algorithm, key). HMAC reuses the ledger key;
+    Ed25519 requires an explicit private key (hex)."""
+    if algorithm == "hmac-sha256":
+        return algorithm, signing_key or ledger_key
+    if algorithm == "ed25519":
+        if not signing_key:
+            _err("error: --signing-key (ed25519 private hex) is required for --algorithm ed25519")
+            raise typer.Exit(1)
+        return algorithm, signing_key
+    _err(f"error: unknown --algorithm {algorithm!r} (use hmac-sha256 | ed25519)")
+    raise typer.Exit(1)
+
+
 def _read_jsonl(path: Path) -> list[object]:
     records: list[object] = []
     with path.open("r", encoding="utf-8") as fh:
@@ -97,6 +116,12 @@ def ingest(
         "unnamed", "--use-case", help="Use-case name for evidence export."
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    algorithm: str = typer.Option(
+        "hmac-sha256", "--algorithm", help="Evidence signing: hmac-sha256 | ed25519."
+    ),
+    signing_key: str | None = typer.Option(
+        None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Emit machine-readable JSON only."),
 ) -> None:
     """Scrub a source, record lineage, and optionally export signed evidence."""
@@ -129,8 +154,9 @@ def ingest(
 
         evidence_payload = None
         if evidence_out is not None:
+            alg, sig_key = _resolve_signing(algorithm, resolved_key, signing_key)
             refs = build_ingest_evidence(
-                result, ledger=ledger, signing_key=resolved_key, signer=signer
+                result, ledger=ledger, signing_key=sig_key, signer=signer, algorithm=alg
             )
             export_evidence(refs, evidence_out, use_case=use_case)
             evidence_payload = [r.to_dict() for r in refs]
@@ -214,6 +240,12 @@ def dp_train(
         None, "--evidence-out", help="Write D4 EvidenceRef JSON."
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    algorithm: str = typer.Option(
+        "hmac-sha256", "--algorithm", help="Evidence signing: hmac-sha256 | ed25519."
+    ),
+    signing_key: str | None = typer.Option(
+        None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Train a DP-SGD logistic model, charge the budget, optionally export evidence.
@@ -264,8 +296,13 @@ def dp_train(
 
     evidence_payload = None
     if evidence_out is not None:
+        alg, sig_key = _resolve_signing(algorithm, resolved_key, signing_key)
         refs = build_dp_evidence(
-            charge.result, signing_key=resolved_key, signer=signer, charge_seq=charge.ledger_seq
+            charge.result,
+            signing_key=sig_key,
+            signer=signer,
+            charge_seq=charge.ledger_seq,
+            algorithm=alg,
         )
         export_evidence(refs, evidence_out, use_case=job_id)
         evidence_payload = [r.to_dict() for r in refs]
@@ -393,6 +430,24 @@ def fl_train(
 
 
 @app.command()
+def keygen(
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Generate an Ed25519 keypair for signing evidence (store the private key securely)."""
+    try:
+        private_key, public_key = generate_ed25519_keypair()
+    except ImportError as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+    if quiet:
+        typer.echo(json.dumps({"private_key": private_key, "public_key": public_key}))
+    else:
+        _err("Store the private key secretly; share only the public key (trust store).")
+        typer.echo(f"private_key: {private_key}")
+        typer.echo(f"public_key:  {public_key}")
+
+
+@app.command()
 def version() -> None:
     """Print the tool version."""
     typer.echo(__version__)
@@ -488,6 +543,12 @@ def dp_charge(
         None, "--evidence-out", help="Write D4 EvidenceRef JSON."
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    algorithm: str = typer.Option(
+        "hmac-sha256", "--algorithm", help="Evidence signing: hmac-sha256 | ed25519."
+    ),
+    signing_key: str | None = typer.Option(
+        None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
+    ),
     mpa_threshold: int = typer.Option(
         0, "--mpa-threshold", help="Require n-of-m approval (0=off)."
     ),
@@ -543,8 +604,13 @@ def dp_charge(
 
     evidence_payload = None
     if evidence_out is not None:
+        alg, sig_key = _resolve_signing(algorithm, resolved_key, signing_key)
         refs = build_dp_evidence(
-            charge.result, signing_key=resolved_key, signer=signer, charge_seq=charge.ledger_seq
+            charge.result,
+            signing_key=sig_key,
+            signer=signer,
+            charge_seq=charge.ledger_seq,
+            algorithm=alg,
         )
         export_evidence(refs, evidence_out, use_case=job_id)
         evidence_payload = [r.to_dict() for r in refs]
