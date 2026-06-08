@@ -4,6 +4,7 @@
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — the deferred "consortium" prize
+**Amended by:** [ADR-0002](0002-malicious-security-hardening.md) — extends the threat model from honest-but-curious to malicious (commitments + VSS + signed survivor-set).
 
 > **Implementation status (v0.11.0–v0.15.0).** Accepted and built out. The pure-Python secure-aggregation **core** — antisymmetric pairwise masks, self-masks, and Shamir t-of-n dropout recovery — ships in `presidio_ai.fl.secure_agg`, verified to reproduce plaintext FedAvg with and without dropout (action items 3 & 6). Still deferred to the `[mpc]` lane: authenticated pairwise key agreement (seeds modelled in-process today), the network transport, field-quantised exact arithmetic, and DP/MPA/evidence composition per round (items 2, 4, 5).
 
@@ -147,14 +148,14 @@ in the suite.
 
 **Revisit when:**
 - The threat model adds a **malicious** coordinator or parties → add commitments /
-  verifiable secret sharing, or move to Option C (threshold HE).
+  verifiable secret sharing, or move to Option C (threshold HE). **→ ADR-0002 (Proposed).**
 - Party count grows beyond ~20, or WAN latency dominates → reconsider topology / HE
   packing.
 
 > **Beyond the original items:** v0.12.0 also moved masking into exact field-quantised
 > arithmetic (no float-cancellation error), and v0.15.0 tightened the per-party DP bound
-> with a fractional-order RDP accountant. Remaining: malicious-security hardening
-> (commitments / VSS) — the ADR's stated revisit trigger.
+> with a fractional-order RDP accountant. Malicious-security hardening (commitments / VSS)
+> — the ADR's stated revisit trigger — is now scoped in **ADR-0002 (Proposed)**.
 
 ## Action Items
 1. [x] Write the threat-model section (adversary = HbC coordinator + ≤`t` colluding
