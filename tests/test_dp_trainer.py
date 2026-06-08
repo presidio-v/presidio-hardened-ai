@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import random
 
@@ -89,10 +90,23 @@ def test_invalid_data_raises(f, y):
 
 def test_make_trainer():
     assert isinstance(make_trainer("reference"), ReferenceDPSGDTrainer)
-    with pytest.raises(NotImplementedError):
-        make_trainer("opacus")
     with pytest.raises(ValueError):
         make_trainer("nope")
+    if importlib.util.find_spec("torch") is not None:  # pragma: no cover
+        from presidio_ai.dp.trainer import OpacusDPSGDTrainer
+
+        assert isinstance(make_trainer("opacus"), OpacusDPSGDTrainer)
+    else:
+        with pytest.raises(ImportError):
+            make_trainer("opacus")
+
+
+def test_secure_rng_runs_and_is_nondeterministic():
+    f, y = _separable()
+    a = ReferenceDPSGDTrainer().train(f, y, _cfg(), secure_rng=True)
+    b = ReferenceDPSGDTrainer().train(f, y, _cfg(), secure_rng=True)
+    assert 0.0 <= a.accuracy <= 1.0
+    assert a.weights != b.weights  # CSPRNG noise -> not reproducible
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────

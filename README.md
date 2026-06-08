@@ -148,6 +148,26 @@ broadcast global model and only their updates are aggregated (FedAvg). With `--s
 the coordinator recovers only the combined update, not any individual silo's. Each silo's
 `(ε, δ)` composes over `rounds × local-steps`.
 
+
+### Production DP-SGD (Opacus)
+
+```bash
+pip install "presidio-hardened-ai[torch]"
+```
+
+```python
+from presidio_ai.dp import make_trainer, DPSGDConfig
+model = make_trainer("opacus").train(features, labels, DPSGDConfig(
+    noise_multiplier=1.1, sample_rate=0.01, steps=1000, delta=1e-5, clip_norm=1.0,
+))
+```
+
+The Opacus backend trains real models on GPU/CPU and implements the same `DPTrainer`
+interface as the reference trainer; its `TrainedModel.result` uses this suite's
+accountant so evidence is consistent. A dedicated CI lane (`ci-torch.yml`) installs the
+extra and cross-validates Opacus' privacy accountant against ours. For production DP
+noise in the reference trainer, pass `secure_rng=True` (CSPRNG, non-deterministic).
+
 ## Library
 
 ```python
@@ -180,7 +200,8 @@ guard; `0600`/`0700` file permissions.
 | P2 | v0.2.0 | ε-budget accountant + DP governance + DP evidence |
 | P2 | v0.3.0 | n-of-m authorization (MPA) for high-ε jobs |
 | P2 | v0.4.0 | DP-SGD trainer: reference + Opacus seam (`pai dp-train`) |
-| **P3** | **v0.5.0** | **Federated learning: FedAvg + secure aggregation (`pai fl-train`) — current** |
+| P3 | v0.5.0 | Federated learning: FedAvg + secure aggregation (`pai fl-train`) |
+| **P2** | **v0.6.0** | **Opacus DP-SGD backend + torch CI lane; CSPRNG noise — current** |
 | P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
 | P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
 | P4 | — | Multi-party consortium (SMPC) — pull-only |

@@ -29,6 +29,7 @@ from presidio_ai.dp.budget import BudgetExceeded, EpsilonBudget
 from presidio_ai.dp.trainer import (
     DPSGDConfig,
     DPTrainer,
+    OpacusDPSGDTrainer,
     ReferenceDPSGDTrainer,
     TrainedModel,
     make_trainer,
@@ -51,6 +52,7 @@ __all__ = [
     "sign_approval",
     "DPSGDConfig",
     "DPTrainer",
+    "OpacusDPSGDTrainer",
     "ReferenceDPSGDTrainer",
     "TrainedModel",
     "make_trainer",

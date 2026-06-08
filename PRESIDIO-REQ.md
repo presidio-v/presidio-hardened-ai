@@ -63,7 +63,8 @@ CLI command: `pai`
 | v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | Shipped |
 | v0.3.0 | P2 | n-of-m authorization (MPA) for high-ε jobs (ikigov bridge deferred to ikigov v0.13.0) | Shipped |
 | v0.4.0 | P2 | DP-SGD trainer: verifiable stdlib reference + Opacus adapter seam (`pai dp-train`) | Shipped |
-| v0.5.0 | P3 | Federated learning: FedAvg across silos + secure aggregation + per-client DP (`pai fl-train`) | **Current** |
+| v0.5.0 | P3 | Federated learning: FedAvg across silos + secure aggregation + per-client DP (`pai fl-train`) | Shipped |
+| v0.6.0 | P2 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise option for the reference trainer | **Current** |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -323,6 +324,51 @@ a deployment uses pairwise-exchanged mask seeds and a CSPRNG).
 Opacus local backend behind `[torch]`; per-silo budget/evidence integration (reuse
 `EpsilonBudget` + D4 export per client); cross-silo (sample-level) accounting variants;
 dropout-robust secure aggregation.
+
+---
+
+## v0.6.0 — P2: Opacus DP-SGD Backend + Torch CI Lane
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Complete the DP-SGD harness with the production **Opacus** backend behind the `[torch]`
+extra, and add the **CI lane that verifies it**. The prior versions deliberately shipped
+only the dependency-free reference trainer because torch can't run in the default
+(dependency-light) test environment; this version adds a separate CI job that installs
+`[torch]` and exercises the adapter — so the torch code is verified in CI rather than
+shipped unverified.
+
+### Components
+`dp/trainer.OpacusDPSGDTrainer` (implements `DPTrainer`; lazy torch/opacus import — a clear
+ImportError without the extra). `make_trainer("opacus")` returns it. The returned
+`TrainedModel.result` uses **this suite's accountant** so the evidence epsilon is identical
+across backends. New `.github/workflows/ci-torch.yml` installs `.[dev,torch]` and runs
+`tests/test_opacus.py`. The reference trainer gains a `secure_rng` option (CSPRNG noise via
+`random.SystemRandom`) closing the v0.4.0 randomness caveat — at the cost of reproducibility.
+
+### Cross-validation (the point of the lane)
+`tests/test_opacus.py` trains a model via Opacus **and** compares Opacus' own privacy
+accountant (`PrivacyEngine.get_epsilon`) against `dpsgd_epsilon` for the same parameters.
+They must agree to the same order of magnitude (0.2× – 5× tolerance across Opacus
+versions); ours is a sound integer-order **upper bound**, so it should not be smaller than
+Opacus' tighter (fractional-order) estimate by much.
+
+### Acceptance criteria
+1. Without `[torch]`, `make_trainer("opacus")` raises a clear ImportError and the default
+   test lane is unaffected (`test_opacus.py` skips via `importorskip`). *(test_dp_trainer / default CI)*
+2. `secure_rng=True` produces a valid model and is non-deterministic (CSPRNG). *(test_dp_trainer)*
+3. **[torch lane]** Opacus backend trains separable data to ≥0.8 accuracy. *(test_opacus)*
+4. **[torch lane]** Opacus' accountant cross-validates against `dpsgd_epsilon`. *(test_opacus)*
+
+### Security
+`secure_rng` uses an `os.urandom`-backed CSPRNG for DP noise (production-grade; the default
+seedable PRNG remains for reproducible reference/testing). The Opacus path uses
+`PrivacyEngine(secure_mode=secure_rng)`, which uses a cryptographically secure RNG when set.
+
+### Future
+GPU lane; larger reference models; PRV accountant option to tighten our bound toward
+Opacus'.
 
 ---
 
