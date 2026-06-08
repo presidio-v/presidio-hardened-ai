@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "presidio-ai-zk"
+version = "0.1.0"
+description = "Ristretto255 + Bulletproofs bounded-norm proof backend (ADR-0004) for presidio-hardened-ai"
+requires-python = ">=3.10"
+classifiers = ["Programming Language :: Rust", "License :: OSI Approved :: Apache Software License"]
+
+[tool.maturin]
+module-name = "presidio_ai_zk"

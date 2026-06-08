@@ -1,0 +1,48 @@
+name: ZK CI
+
+# Lane for the optional Ristretto255 + Bulletproofs backend (ADR-0004). The default lane
+# runs the pure-Python MODP fallback; this lane builds the Rust/dalek native wheel from
+# rust/ via maturin and cross-validates it against MODP on decision equivalence.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  zk:
+    name: pytest [zk] native backend (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build + install the native backend (maturin)
+        run: |
+          python -m pip install --upgrade pip maturin
+          maturin build --release -m rust/Cargo.toml --out dist
+          pip install dist/*.whl
+
+      - name: Install the package (dev)
+        run: pip install -e ".[dev]"
+
+      - name: Lint (zk lane tests + backend)
+        run: |
+          ruff check tests/test_ristretto_backend.py src/presidio_ai/fl/_ristretto_backend.py
+          ruff format --check tests/test_ristretto_backend.py src/presidio_ai/fl/_ristretto_backend.py
+
+      - name: Run native backend + decision-equivalence tests
+        run: pytest tests/test_ristretto_backend.py -q
+
+      - name: Confirm the native backend is auto-selected
+        run: python -c "from presidio_ai.fl.proof_backend import backend_name; assert backend_name()=='ristretto255-bulletproofs', backend_name(); print('native backend active')"
