@@ -25,7 +25,11 @@ def _charge(tmp_path):
 def test_build_dp_evidence_d4(tmp_path):
     charge = _charge(tmp_path)
     refs = build_dp_evidence(
-        charge.result, signing_key=SIGNING, signer="prod", charge_seq=charge.ledger_seq
+        charge.result,
+        signing_key=SIGNING,
+        signer="prod",
+        charge_seq=charge.ledger_seq,
+        algorithm="hmac-sha256",
     )
     assert [r.item_id for r in refs] == list(SUPPORTED_DP_ITEMS) == ["D4"]
     ref = refs[0]
@@ -38,7 +42,11 @@ def test_build_dp_evidence_d4(tmp_path):
 def test_dp_evidence_export_shape(tmp_path):
     charge = _charge(tmp_path)
     refs = build_dp_evidence(
-        charge.result, signing_key=SIGNING, signer="prod", charge_seq=charge.ledger_seq
+        charge.result,
+        signing_key=SIGNING,
+        signer="prod",
+        charge_seq=charge.ledger_seq,
+        algorithm="hmac-sha256",
     )
     out = tmp_path / "dp-evidence.json"
     export_evidence(refs, out, use_case="fraud-scoring")
@@ -51,7 +59,11 @@ def test_dp_evidence_export_shape(tmp_path):
 def test_dp_evidence_tamper_fails(tmp_path):
     charge = _charge(tmp_path)
     ref = build_dp_evidence(
-        charge.result, signing_key=SIGNING, signer="prod", charge_seq=charge.ledger_seq
+        charge.result,
+        signing_key=SIGNING,
+        signer="prod",
+        charge_seq=charge.ledger_seq,
+        algorithm="hmac-sha256",
     )[0]
     from dataclasses import replace
 

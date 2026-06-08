@@ -60,7 +60,9 @@ def _result(tmp_path):
 
 def test_build_ingest_evidence_items(tmp_path):
     result, ledger = _result(tmp_path)
-    refs = build_ingest_evidence(result, ledger=ledger, signing_key=SIGNING, signer="prod")
+    refs = build_ingest_evidence(
+        result, ledger=ledger, signing_key=SIGNING, signer="prod", algorithm="hmac-sha256"
+    )
     items = {r.item_id for r in refs}
     assert items == set(SUPPORTED_ITEMS) == {"D1", "D4", "O5"}
     for ref in refs:
@@ -73,7 +75,9 @@ def test_d1_commits_to_content_hash_o5_to_head(tmp_path):
     result, ledger = _result(tmp_path)
     refs = {
         r.item_id: r
-        for r in build_ingest_evidence(result, ledger=ledger, signing_key=SIGNING, signer="prod")
+        for r in build_ingest_evidence(
+            result, ledger=ledger, signing_key=SIGNING, signer="prod", algorithm="hmac-sha256"
+        )
     }
     assert refs["D1"].content_hash == result.content_hash
     assert refs["O5"].content_hash == ledger.head_hash
@@ -81,7 +85,9 @@ def test_d1_commits_to_content_hash_o5_to_head(tmp_path):
 
 def test_export_shape(tmp_path):
     result, ledger = _result(tmp_path)
-    refs = build_ingest_evidence(result, ledger=ledger, signing_key=SIGNING, signer="prod")
+    refs = build_ingest_evidence(
+        result, ledger=ledger, signing_key=SIGNING, signer="prod", algorithm="hmac-sha256"
+    )
     out = tmp_path / "evidence.json"
     export_evidence(refs, out, use_case="fraud-scoring")
     doc = json.loads(out.read_text())

@@ -130,7 +130,7 @@ def _make_ref(
     ledger_ref: str,
     signing_key: bytes | str,
     signer: str,
-    algorithm: str = "hmac-sha256",
+    algorithm: str = "ed25519",
 ) -> EvidenceRef:
     return EvidenceRef(
         item_id=item_id,
@@ -150,7 +150,7 @@ def build_ingest_evidence(
     ledger: Ledger,
     signing_key: bytes | str,
     signer: str,
-    algorithm: str = "hmac-sha256",
+    algorithm: str = "ed25519",
 ) -> list[EvidenceRef]:
     """Build signed D1/D4/O5 evidence references from an ingest result.
 
@@ -198,7 +198,7 @@ def build_dp_evidence(
     signing_key: bytes | str,
     signer: str,
     charge_seq: int,
-    algorithm: str = "hmac-sha256",
+    algorithm: str = "ed25519",
 ):
     """Build a signed D4 EvidenceRef from a DP accounting result.
 

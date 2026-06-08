@@ -65,7 +65,8 @@ CLI command: `pai`
 | v0.4.0 | P2 | DP-SGD trainer: verifiable stdlib reference + Opacus adapter seam (`pai dp-train`) | Shipped |
 | v0.5.0 | P3 | Federated learning: FedAvg across silos + secure aggregation + per-client DP (`pai fl-train`) | Shipped |
 | v0.6.0 | P2 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise option for the reference trainer | Shipped |
-| v0.7.0 | — | Ed25519 public-key evidence signing + `pai keygen` (`[crypto]` extra); HMAC stays default | **Current** |
+| v0.7.0 | — | Ed25519 public-key evidence signing + `pai keygen` (`[crypto]` extra); HMAC default | Shipped |
+| v0.8.0 | — | Ed25519 becomes the **default** signing algorithm (coordinated with ikigov v0.14.0 verification) | **Current** |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -370,6 +371,36 @@ seedable PRNG remains for reproducible reference/testing). The Opacus path uses
 ### Future
 GPU lane; larger reference models; PRV accountant option to tighten our bound toward
 Opacus'.
+
+---
+
+## v0.8.0 — Ed25519 Becomes the Default Signing Algorithm
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Flip the default evidence signing algorithm from HMAC-SHA256 to **Ed25519**, now that the
+consumer (ikigov **v0.14.0**) verifies public-key signatures. HMAC remains available via
+`--algorithm hmac-sha256` (and `algorithm="hmac-sha256"` in the library). No new
+mechanism — purely the default — so the change is small: `build_ingest_evidence` /
+`build_dp_evidence` and the `ingest` / `dp-charge` / `dp-train` `--algorithm` options now
+default to `ed25519`.
+
+### Consequence
+Evidence export now **requires a signing key** under the default: generate one with
+`pai keygen` and pass `--signing-key` (Ed25519 private hex). HMAC continues to reuse the
+ledger key when explicitly selected.
+
+### Deploy ordering (important)
+Roll out / commit the ikigov **v0.14.0** verifier (public-key trust entries) **before or
+together with** this flip, so the live governance loop never receives Ed25519 evidence a
+v0.13.0 (HMAC-only) verifier cannot check. End-to-end verified across both repos against
+the fixed-key golden vector.
+
+### Tests
+The HMAC path stays covered by pinning `algorithm="hmac-sha256"` in the legacy evidence
+tests; the Ed25519 default path is covered by `test_ed25519.py`. Gate: 149 passed,
+1 skipped (torch).
 
 ---
 

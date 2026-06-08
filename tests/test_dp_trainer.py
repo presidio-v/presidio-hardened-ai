@@ -147,6 +147,8 @@ def test_cli_dp_train_end_to_end(tmp_path, monkeypatch):
             "0.5",
             "--evidence-out",
             str(evidence),
+            "--algorithm",
+            "hmac-sha256",
             "--quiet",
         ],
     )

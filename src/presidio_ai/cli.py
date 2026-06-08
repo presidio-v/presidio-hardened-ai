@@ -117,7 +117,7 @@ def ingest(
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
     algorithm: str = typer.Option(
-        "hmac-sha256", "--algorithm", help="Evidence signing: hmac-sha256 | ed25519."
+        "ed25519", "--algorithm", help="Evidence signing: ed25519 | hmac-sha256."
     ),
     signing_key: str | None = typer.Option(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
@@ -241,7 +241,7 @@ def dp_train(
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
     algorithm: str = typer.Option(
-        "hmac-sha256", "--algorithm", help="Evidence signing: hmac-sha256 | ed25519."
+        "ed25519", "--algorithm", help="Evidence signing: ed25519 | hmac-sha256."
     ),
     signing_key: str | None = typer.Option(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
@@ -544,7 +544,7 @@ def dp_charge(
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
     algorithm: str = typer.Option(
-        "hmac-sha256", "--algorithm", help="Evidence signing: hmac-sha256 | ed25519."
+        "ed25519", "--algorithm", help="Evidence signing: ed25519 | hmac-sha256."
     ),
     signing_key: str | None = typer.Option(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
