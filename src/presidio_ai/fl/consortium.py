@@ -321,6 +321,7 @@ def run_secure_consortium_round(
     algorithm: str = "ed25519",
     evidence_path: str | Path | None = None,
     clip_bound: float | None = None,
+    l2_bound: float | None = None,
     rng=None,
 ) -> SecureConsortiumResult:
     """A consortium round hardened against active deviation (ADR-0002, security-with-abort).
@@ -404,6 +405,25 @@ def run_secure_consortium_round(
                 raise ConsortiumError(f"bounded-norm proof did not verify for '{sid}'")
         sensitivity_proven = True
 
+    proven_norm = "linf" if sensitivity_proven else None
+    if l2_bound is not None:
+        if l2_bound <= 0:
+            raise ConsortiumError("l2_bound must be > 0")
+        l2_fp = round(l2_bound * scale)
+        for sid in survivors:
+            try:
+                l2_proof = backend.prove_l2_bounded(
+                    s_updates[sid], party_randomness[sid], bound=l2_fp, rng=rng
+                )
+            except ProofError as exc:
+                raise ConsortiumError(
+                    f"input failed L2 bound for '{sid}' (||x||2 > clip sensitivity): {exc}"
+                ) from exc
+            if not backend.verify_l2_bounded(party_commits[sid], l2_proof, bound=l2_fp):
+                raise ConsortiumError(f"L2 bounded-norm proof did not verify for '{sid}'")
+        sensitivity_proven = True
+        proven_norm = "l2"
+
     # 3. Secure aggregation (verifiable session: VSS-checked reconstruction).
     masked = {s: session.mask_field(s, s_updates[s]) for s in survivors}
     agg_field = session.aggregate_field(masked)
@@ -479,7 +499,9 @@ def run_secure_consortium_round(
             "n_survivors": len(survivors),
             "survivor_signers": signers,
             "sensitivity_proven": sensitivity_proven,
+            "proven_norm": proven_norm,
             "clip_bound": clip_bound,
+            "l2_bound": l2_bound,
             "per_silo_epsilon": {str(s): dp_results[s].epsilon for s in survivors},
         },
     )

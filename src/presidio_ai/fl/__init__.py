@@ -68,12 +68,18 @@ from presidio_ai.fl.transport import (
 )
 from presidio_ai.fl.zk import (
     BoundedNormProof,
+    L2BoundedProof,
     ProofError,
     RangeProof,
+    SquareProof,
     prove_bounded,
+    prove_l2_bounded,
     prove_range,
+    prove_square,
     verify_bounded,
+    verify_l2_bounded,
     verify_range,
+    verify_square,
 )
 
 __all__ = [
@@ -121,6 +127,12 @@ __all__ = [
     "RangeProof",
     "BoundedNormProof",
     "ProofError",
+    "prove_l2_bounded",
+    "verify_l2_bounded",
+    "L2BoundedProof",
+    "prove_square",
+    "verify_square",
+    "SquareProof",
     "ProofBackend",
     "ModpBackend",
     "get_backend",

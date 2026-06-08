@@ -32,7 +32,9 @@ from presidio_ai.fl.commit import (
     random_scalar,
 )
 from presidio_ai.fl.zk import prove_bounded as _modp_prove_bounded
+from presidio_ai.fl.zk import prove_l2_bounded as _modp_prove_l2
 from presidio_ai.fl.zk import verify_bounded as _modp_verify_bounded
+from presidio_ai.fl.zk import verify_l2_bounded as _modp_verify_l2
 
 
 @runtime_checkable
@@ -84,6 +86,12 @@ class ModpBackend:
         if getattr(proof, "bound", None) != bound:
             return False
         return _modp_verify_bounded(commitments, proof, group=self.group)
+
+    def prove_l2_bounded(self, values, blindings, *, bound, rng=None):
+        return _modp_prove_l2(values, blindings, bound=bound, group=self.group, rng=rng)
+
+    def verify_l2_bounded(self, commitments, proof, *, bound) -> bool:
+        return _modp_verify_l2(commitments, proof, bound=bound, group=self.group)
 
 
 def _load_native() -> ProofBackend | None:

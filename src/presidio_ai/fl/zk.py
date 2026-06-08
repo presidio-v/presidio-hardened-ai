@@ -252,3 +252,166 @@ def verify_bounded(
         if not verify_range(shifted, range_proof, group=group):
             return False
     return True
+
+
+# --- L2 bounded-norm (ADR-0005): commit-squares construction ---------------
+
+
+@dataclass(frozen=True)
+class SquareProof:
+    """A Σ-proof that ``C_y`` commits to the square of the value in ``C_x``."""
+
+    t1: int
+    t2: int
+    z_x: int
+    z_rx: int
+    z_r: int
+
+
+def prove_square(
+    value: int,
+    blinding_x: int,
+    blinding_y: int,
+    *,
+    group: SchnorrGroup,
+    prefix: int,
+    rng=None,
+) -> tuple[int, SquareProof]:
+    """Prove ``C_y`` commits to ``value²`` where ``C_x = g^{value} h^{blinding_x}``.
+
+    Uses ``C_y = C_x^value · h^{blinding_y - value·blinding_x}`` (an AND of openings sharing
+    the witness ``value``); returns ``(C_y, proof)``.
+    """
+    p, q, g, h = group.p, group.q, group.g, group.h
+    x = value % q
+    c_x = pedersen_commit(value, blinding_x, group)
+    c_y = pedersen_commit((x * x) % q, blinding_y, group)
+    r_prime = (blinding_y - x * blinding_x) % q
+    k_x = _rand_scalar(group, rng)
+    k_rx = _rand_scalar(group, rng)
+    k_r = _rand_scalar(group, rng)
+    t1 = (pow(g, k_x, p) * pow(h, k_rx, p)) % p
+    t2 = (pow(c_x, k_x, p) * pow(h, k_r, p)) % p
+    e = _challenge(group, prefix, c_x, c_y, t1, t2)
+    return c_y, SquareProof(
+        t1=t1,
+        t2=t2,
+        z_x=(k_x + e * x) % q,
+        z_rx=(k_rx + e * blinding_x) % q,
+        z_r=(k_r + e * r_prime) % q,
+    )
+
+
+def verify_square(
+    c_x: int, c_y: int, proof: SquareProof, *, group: SchnorrGroup, prefix: int
+) -> bool:
+    """Verify a square-correctness proof (fail-closed)."""
+    p, g, h = group.p, group.g, group.h
+    e = _challenge(group, prefix, c_x, c_y, proof.t1, proof.t2)
+    lhs1 = (pow(g, proof.z_x, p) * pow(h, proof.z_rx, p)) % p
+    ok1 = lhs1 == (proof.t1 * pow(c_x, e, p)) % p
+    lhs2 = (pow(c_x, proof.z_x, p) * pow(h, proof.z_r, p)) % p
+    ok2 = lhs2 == (proof.t2 * pow(c_y, e, p)) % p
+    return ok1 and ok2
+
+
+@dataclass(frozen=True)
+class L2BoundedProof:
+    """A proof that a committed vector has ``Σ x_k² ≤ bound²`` (L2 norm ≤ bound)."""
+
+    bound: int
+    bits: int
+    square_commitments: list[int]
+    square_proofs: list[SquareProof]
+    range_sum: RangeProof  # S = Σ x_k² ∈ [0, 2^bits)
+    range_diff: RangeProof  # bound² − S ∈ [0, 2^bits)  ⇒  S ≤ bound²
+
+
+def prove_l2_bounded(
+    values: Sequence[int],
+    blindings: Sequence[int],
+    *,
+    bound: int,
+    group: SchnorrGroup = MODP2048_GROUP,
+    rng=None,
+) -> L2BoundedProof:
+    """Prove ``‖values‖₂ ≤ bound`` for a committed vector, in zero knowledge.
+
+    ``blindings`` are the blindings of the *existing* per-coordinate commitments
+    ``C_x_k = g^{x_k} h^{r_k}``. Commits each square, proves correctness, and range-proves
+    the homomorphic squared-norm ``S = Σ x_k²`` lies in ``[0, bound²]``.
+    """
+    if bound < 1:
+        raise ProofError("bound must be >= 1")
+    if len(values) != len(blindings):
+        raise ProofError("values and blindings must have equal length")
+    q = group.q
+    m = bound * bound
+    if not m < q:
+        raise ProofError("bound² must fit the field (choose smaller bound or fixed-point scale)")
+    prefix = _challenge(
+        group,
+        bound,
+        *[pedersen_commit(v, r, group) for v, r in zip(values, blindings, strict=True)],
+    )
+    square_commitments: list[int] = []
+    square_proofs: list[SquareProof] = []
+    sq_blindings: list[int] = []
+    for v, r in zip(values, blindings, strict=True):
+        rb = _rand_scalar(group, rng)
+        sq_blindings.append(rb)
+        c_y, sp = prove_square(v, r, rb, group=group, prefix=prefix, rng=rng)
+        square_commitments.append(c_y)
+        square_proofs.append(sp)
+    s_val = sum((v % q) * (v % q) for v in values) % q
+    s_blind = sum(sq_blindings) % q
+    if s_val > m:
+        raise ProofError("squared norm exceeds bound² (L2 norm out of bound)")
+    bits = m.bit_length()
+    range_sum = prove_range(s_val, s_blind, bits=bits, group=group, rng=rng)
+    range_diff = prove_range((m - s_val) % q, (-s_blind) % q, bits=bits, group=group, rng=rng)
+    return L2BoundedProof(
+        bound=bound,
+        bits=bits,
+        square_commitments=square_commitments,
+        square_proofs=square_proofs,
+        range_sum=range_sum,
+        range_diff=range_diff,
+    )
+
+
+def verify_l2_bounded(
+    commitments: Sequence[int],
+    proof: L2BoundedProof,
+    *,
+    bound: int,
+    group: SchnorrGroup = MODP2048_GROUP,
+) -> bool:
+    """Verify an L2 bounded-norm proof against per-coordinate commitments (fail-closed)."""
+    p, q, g = group.p, group.q, group.g
+    if proof.bound != bound:
+        return False
+    m = bound * bound
+    if m >= q or proof.bits != m.bit_length():
+        return False
+    n = len(commitments)
+    if len(proof.square_commitments) != n or len(proof.square_proofs) != n:
+        return False
+    prefix = _challenge(group, bound, *commitments)
+    for c_x, c_y, sp in zip(
+        commitments, proof.square_commitments, proof.square_proofs, strict=True
+    ):
+        if not verify_square(c_x, c_y, sp, group=group, prefix=prefix):
+            return False
+    # S = Σ x_k² is the homomorphic sum of the square commitments.
+    s_commit = 1
+    for c_y in proof.square_commitments:
+        s_commit = (s_commit * c_y) % p
+    if proof.range_sum.bits != proof.bits or proof.range_diff.bits != proof.bits:
+        return False
+    if not verify_range(s_commit, proof.range_sum, group=group):
+        return False
+    # C_diff = g^{bound²} · S_commit^{-1} commits to (bound² − S); range-proving it ≥ 0
+    # establishes S ≤ bound².
+    c_diff = (pow(g, m % q, p) * pow(s_commit, p - 2, p)) % p
+    return verify_range(c_diff, proof.range_diff, group=group)
