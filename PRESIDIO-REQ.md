@@ -73,8 +73,11 @@ CLI command: `pai`
 | v0.12.0 | P4 | Exact field-quantised secure aggregation (no float-cancellation error) | Shipped |
 | v0.13.0 | P4 | Governed consortium rounds: MPA + per-silo DP + one signed D4 (`pai consortium-round`) | Shipped |
 | v0.14.0 | P4 | `[mpc]` lane: authenticated X25519 key agreement + transport wire format | Shipped |
-| v0.15.0 | P2 | Fractional-order RDP accountant (TF-Privacy/Opacus series); ≤ integer-only ε | **Current** |
-| — | P4 | `[mpc]` malicious-security hardening (commitments / VSS), HE packing for large consortia | Deferred |
+| v0.15.0 | P2 | Fractional-order RDP accountant (TF-Privacy/Opacus series); ≤ integer-only ε | Shipped |
+| v0.16.0 | P4 | Pedersen commitments + Feldman VSS primitives (`fl.commit`) — ADR-0002 | Shipped |
+| v0.17.0 | P4 | Verifiable (Feldman-VSS) seed sharing in `SecureAggregationSession` | Shipped |
+| v0.18.0 | P4 | Malicious-secure consortium round: signed survivor-set + homomorphic aggregate check | **Current** |
+| — | P4 | Bounded-norm **ZK input validation** (poisoning) and guaranteed-output-delivery MPC | Deferred |
 
 ---
 
@@ -612,6 +615,45 @@ high-sampling-rate regimes a sub-2 order strictly wins (e.g. ε 118 vs 246 at q=
 α; fractional grid never looser than integer; Opacus cross-validation tightened to rel=0.2.
 The series coefficient is updated incrementally (O(n), not O(n²)); non-converging fractional
 orders are skipped (integers always succeed), never aborting.
+
+---
+
+## v0.16.0–v0.18.0 — Malicious-Security Hardening (P4, ADR-0002)
+
+ADR-0002 (Accepted, Option A) extends the threat model from honest-but-curious to a
+**deviating** coordinator or colluding parties, with **security-with-abort**. Three
+mechanisms, each closing one named attack, all anchored in the ledger:
+
+- **v0.16.0 — primitives (`fl.commit`).** A pure-Python prime-order Schnorr group over the
+  RFC 3526 MODP-2048 safe prime. **Pedersen commitments** `g^m h^r` (hiding, binding,
+  *additively homomorphic*) and **Feldman VSS** (Shamir shares + `g^{a_i}` coefficient
+  commitments so a recipient rejects an inconsistent share). No new binary dependency;
+  primality of the hardcoded modulus is re-verified in tests.
+- **v0.17.0 — verifiable seed sharing.** `SecureAggregationSession(group=…)` shares the
+  self/pairwise mask seeds with Feldman VSS; reconstruction verifies every quorum share
+  against the published commitments and **fails closed** on a tampered share. *Refinement
+  to the ADR's field-migration concern:* only the seed-sharing exponent field moves to
+  `Z_q`; the additive masking stays exact in GF(2⁶¹−1) (the seed is just a larger int into
+  the PRG), so the honest-but-curious path is unchanged.
+- **v0.18.0 — malicious-secure round (`run_secure_consortium_round`).** Abort-before-side-
+  effects: **(1)** a `≥t`-signed, ledger-anchored agreement on the survivor set — each
+  signature binds the exact alive-set, so a coordinator cannot equivocate to mount the
+  Bonawitz unmasking attack; **(2)** Pedersen-committed inputs; **(3)** verifiable-session
+  aggregation (VSS-checked); **(4)** a **homomorphic aggregate check** — the product of
+  input commitments must equal a commitment to the returned aggregate, so a *false
+  aggregate* aborts (holds in the no-wrap operating range); **(5)** only then MPA + per-silo
+  DP charge + a commitments-only round entry (survivor signers + input-commitment digest) +
+  one signed `D4`.
+
+**Threat model now:** confidentiality + integrity-or-abort against a malicious coordinator
+(equivocation, false aggregate) and a malicious minority of parties (inconsistent shares).
+A cheater can still force a clean, attributable **abort** (a DoS) — accepted; availability
+is not confidentiality/integrity.
+
+**Deferred (separate ADRs):** bounded-norm **ZK input validation** (well-formed-but-
+adversarial updates / model poisoning — a different, Byzantine-robustness problem) and
+**guaranteed-output-delivery** MPC. The commitment cost at full model dimension and a
+production group/transport binding are the remaining engineering items (ADR-0002 item 7).
 
 ---
 
