@@ -125,6 +125,7 @@ then be sealed with `iga export` / `iga verify-bundle`.
 
 - [ADR-0001](adr/0001-multiparty-secure-aggregation.md) — multi-party consortium training via secure aggregation (P4, **Accepted & built**: v0.11.0 core, v0.12.0 exact field arithmetic, v0.13.0 governed rounds, v0.14.0 `[mpc]` key agreement + transport).
 - [ADR-0002](adr/0002-malicious-security-hardening.md) — malicious-security hardening: commitments + verifiable secret sharing + signed survivor-set consistency (P4, **Accepted & built** v0.16.0–v0.18.0; security-with-abort).
+- [ADR-0003](adr/0003-bounded-norm-input-validation.md) — bounded-norm input validation via zero-knowledge (Bulletproofs L∞ range proofs over the Pedersen commitments; enforces the DP clip sensitivity) (P4, **Proposed**).
 
 ## SDLC
 

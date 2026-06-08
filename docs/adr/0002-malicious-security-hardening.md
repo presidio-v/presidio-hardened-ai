@@ -7,6 +7,8 @@
 *active protocol deviation*
 **Amends:** [ADR-0001](0001-multiparty-secure-aggregation.md) — extends its threat model
 from honest-but-curious to malicious; does not change the v1 mechanism (additive masking).
+**Amended by:** [ADR-0003](0003-bounded-norm-input-validation.md) — adds *input honesty*
+(bounded-norm ZK proofs) on top of the protocol honesty secured here.
 
 > **Implementation status (v0.16.0–v0.18.0).** Accepted; Option A built (security-with-abort). v0.16.0 ships the
 > verifiable primitives in `presidio_ai.fl.commit` — Pedersen commitments (additively
@@ -246,5 +248,5 @@ price of cryptographic (not assumed) integrity, and it is contained behind the `
 7. [ ] Extend the `[mpc]` lane and `ci-mpc`: integration-test the malicious-secure path;
        **benchmark commitment cost at model dimension** and document the abort (DoS) residual.
        *(Remaining: production group/transport binding + dimension benchmark.)*
-8. [ ] Defer to follow-up ADRs: bounded-norm **ZK input validation** (poisoning) and
-       **guaranteed-output-delivery** MPC.
+8. [~] Defer to follow-up ADRs: bounded-norm **ZK input validation** (poisoning)
+       **→ ADR-0003 (Proposed)**; and **guaranteed-output-delivery** MPC (still deferred).
