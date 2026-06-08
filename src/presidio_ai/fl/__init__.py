@@ -26,7 +26,11 @@ from presidio_ai.fl.commit import (
 from presidio_ai.fl.consortium import (
     ConsortiumError,
     ConsortiumRoundResult,
+    SecureConsortiumResult,
     run_consortium_round,
+    run_secure_consortium_round,
+    sign_survivor_set,
+    verify_survivor_set,
 )
 from presidio_ai.fl.coordinator import (
     FederatedClient,
@@ -69,6 +73,10 @@ __all__ = [
     "run_consortium_round",
     "ConsortiumRoundResult",
     "ConsortiumError",
+    "run_secure_consortium_round",
+    "SecureConsortiumResult",
+    "sign_survivor_set",
+    "verify_survivor_set",
     "generate_x25519_keypair",
     "sign_dh_public_key",
     "verify_dh_public_key",
