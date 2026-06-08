@@ -67,7 +67,8 @@ CLI command: `pai`
 | v0.6.0 | P2 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise option for the reference trainer | Shipped |
 | v0.7.0 | — | Ed25519 public-key evidence signing + `pai keygen` (`[crypto]` extra); HMAC default | Shipped |
 | v0.8.0 | — | Ed25519 becomes the **default** signing algorithm (coordinated with ikigov v0.14.0 verification) | Shipped |
-| v0.9.0 | P3 | FL governance: per-silo ε-budget charging + signed D4 evidence in `pai fl-train` (`--charge`) | **Current** |
+| v0.9.0 | P3 | FL governance: per-silo ε-budget charging + signed D4 evidence in `pai fl-train` (`--charge`) | Shipped |
+| v0.10.0 | P2 | Tighter RDP→DP conversion (Canonne-Kamath-Steinke 2020); strictly ≤ the prior bound | **Current** |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -482,6 +483,37 @@ leaves the silo (unchanged from v0.5.0).
 ### Completes
 The DP → budget → evidence → ikigov loop now holds for federated training, not just
 single-node — the full suite governs centralized and cross-silo training identically.
+
+---
+
+## v0.10.0 — Tighter RDP→DP Conversion (Canonne-Kamath-Steinke 2020)
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Replace the classic Mironov (2017) RDP→(ε,δ) conversion with the tight
+**Canonne-Kamath-Steinke (2020)** conversion (the same one Opacus uses) — the deferred
+tightening from the v0.2.0 accountant. Per order α>1:
+``ε(α) = ρ(α) + log1p(-1/α) - (log δ + log α)/(α-1)``, minimised over orders. The two
+extra terms are non-positive for α>1, so the result is **never looser** than the prior
+bound — it is a sound upper bound that strictly tightens the reported ε. No change to the
+RDP computation or composition; only the final conversion.
+
+### Effect
+The canonical example (σ=1.1, q≈256/60000, 5000 steps, δ=1e-5) drops from ε≈1.83 to
+ε≈1.51. This also **tightens agreement with the Opacus accountant** (which uses the same
+conversion), so the torch-lane cross-check ratio moves closer to 1.
+
+### Acceptance criteria (each maps to a test)
+1. CKS ε is positive and **≤ the Mironov bound** for the same RDP curve. *(test_accountant)*
+2. Existing monotonicity / smaller-δ-costs-more / closed-form-oracle tests still hold
+   under the tighter conversion. *(test_accountant)*
+3. The Opacus cross-validation (torch lane) stays within tolerance (now closer to 1).
+   *(test_opacus)*
+
+### Future
+Fractional Rényi orders for the subsampled-Gaussian bound (a further, smaller tightening)
+remain deferred — the integer-order bound + CKS conversion is the verified baseline.
 
 ---
 

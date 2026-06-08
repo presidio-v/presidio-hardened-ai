@@ -114,3 +114,12 @@ def test_invalid_params_raise(kwargs):
 def test_bad_order_raises():
     with pytest.raises(AccountantError):
         rdp_subsampled_gaussian(1, 0.1, 1.0)
+
+
+def test_cks_conversion_tighter_than_mironov():
+    # The CKS-2020 conversion is never looser than the classic Mironov bound.
+    orders = list(DEFAULT_ORDERS)
+    rdps = [10 * rdp_subsampled_gaussian(a, 0.01, 1.0) for a in orders]
+    cks, _ = rdp_to_epsilon(orders, rdps, 1e-5)
+    mironov = min(r + math.log(1 / 1e-5) / (a - 1) for a, r in zip(orders, rdps, strict=True))
+    assert 0 < cks <= mironov
