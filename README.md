@@ -116,6 +116,22 @@ Approvals are HMAC countersignatures bound to the job's privacy parameters (no
 replay across jobs); the authorization is recorded to the ledger before the charge.
 Exit codes: `2` budget exceeded, `3` authorization denied.
 
+
+### Train with DP-SGD
+
+```bash
+# Train a DP-SGD logistic model, charge the org budget, export D4 evidence.
+pai dp-train --input data.jsonl --ledger audit/ledger.jsonl --total-epsilon 10 \
+    --job-id fraud-ft --noise-multiplier 1.1 --sample-rate 0.01 --steps 1000 \
+    --clip-norm 1.0 --lr 0.1 --evidence-out audit/dp-evidence.json
+#   Trained 'fraud-ft': accuracy=0.94  epsilon=1.83
+```
+
+`data.jsonl` is one `{"x": [floats], "y": 0|1}` per line. The default trainer is a
+dependency-free reference DP-SGD (correct per-example clipping + Gaussian noise), so the
+charged `(ε, δ)` is the guarantee of a real private run. The production Opacus backend
+plugs into the same `DPTrainer` interface behind the optional `[torch]` extra.
+
 ## Library
 
 ```python
@@ -146,7 +162,8 @@ guard; `0600`/`0700` file permissions.
 |---|---|---|
 | P1 | v0.1.0 | Evidence layer: ledger + PII-scrub + signed EvidenceRef |
 | P2 | v0.2.0 | ε-budget accountant + DP governance + DP evidence |
-| **P2** | **v0.3.0** | **n-of-m authorization (MPA) for high-ε jobs — current** |
+| P2 | v0.3.0 | n-of-m authorization (MPA) for high-ε jobs |
+| **P2** | **v0.4.0** | **DP-SGD trainer: reference + Opacus seam (`pai dp-train`) — current** |
 | P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
 | P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
 | P4 | — | Multi-party consortium (SMPC) — pull-only |

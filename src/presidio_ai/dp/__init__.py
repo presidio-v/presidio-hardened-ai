@@ -26,7 +26,14 @@ from presidio_ai.dp.authorization import (
     sign_approval,
 )
 from presidio_ai.dp.budget import BudgetExceeded, EpsilonBudget
-from presidio_ai.dp.trainer import DPSGDConfig, plan_privacy
+from presidio_ai.dp.trainer import (
+    DPSGDConfig,
+    DPTrainer,
+    ReferenceDPSGDTrainer,
+    TrainedModel,
+    make_trainer,
+    plan_privacy,
+)
 
 __all__ = [
     "DEFAULT_ORDERS",
@@ -43,5 +50,9 @@ __all__ = [
     "request_hash",
     "sign_approval",
     "DPSGDConfig",
+    "DPTrainer",
+    "ReferenceDPSGDTrainer",
+    "TrainedModel",
+    "make_trainer",
     "plan_privacy",
 ]

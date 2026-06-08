@@ -61,8 +61,9 @@ CLI command: `pai`
 |---|---|---|---|
 | v0.1.0 | P1 | Evidence layer: tamper-evident ledger + PII-scrub on ingest + signed `EvidenceRef` export | Shipped |
 | v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | Shipped |
-| v0.3.0 | P2 | n-of-m authorization (MPA) for high-ε jobs (ikigov bridge deferred to ikigov v0.13.0) | **Current** |
-| v0.4.0 | P3 | Federated learning for cross-border / cross-silo data | Planned |
+| v0.3.0 | P2 | n-of-m authorization (MPA) for high-ε jobs (ikigov bridge deferred to ikigov v0.13.0) | Shipped |
+| v0.4.0 | P2 | DP-SGD trainer: verifiable stdlib reference + Opacus adapter seam (`pai dp-train`) | **Current** |
+| v0.5.0 | P3 | Federated learning for cross-border / cross-silo data | Planned |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -227,6 +228,52 @@ codes: `2` budget exceeded, `3` authorization denied.
 ### Future
 Webhook approver mode (full x402 parity); public-key (sigstore/minisign) approvals;
 the ikigov MCP bridge once ikigov v0.13.0 ships.
+
+---
+
+## v0.4.0 — P2: DP-SGD Trainer (reference + Opacus seam)
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Make the DP accounting *real*: ship a runnable DP-SGD training loop that completes the
+pipeline (train → charge ε → ledger → D4 evidence). Per the verifiability principle, the
+default is a **dependency-free reference trainer** (correct Abadi et al. mechanism on
+logistic regression) that runs fully in CI; the production Opacus backend is a seam behind
+the `[torch]` extra, **not shipped unverified**.
+
+### Components
+`dp/trainer.py`: `DPTrainer` Protocol, `ReferenceDPSGDTrainer` (per-example L2 clipping to
+`clip_norm` + Gaussian noise of std `noise_multiplier × clip_norm`, Poisson lots, averaged
+over the expected lot size — Abadi et al. 2016), `TrainedModel`, and `make_trainer(backend)`
+(`opacus` raises a clear NotImplementedError until the adapter is cross-validated against
+the accountant). CLI `pai dp-train` reads `{"x":[...],"y":0|1}` JSONL, trains, charges the
+budget via `EpsilonBudget.charge`, and optionally exports D4 evidence.
+
+### Pinned semantics
+The trainer's `noise_multiplier` is the noise-to-sensitivity ratio σ; `clip_norm` (C) is
+the L2 sensitivity. Noise is `N(0, (σC)²)` per coordinate, so the accounted guarantee uses
+`noise_multiplier=σ` at sensitivity 1 — identical to the `dpsgd_epsilon` accountant, which
+the trainer calls so the charged ε is exactly the run's guarantee (asserted in tests).
+
+### Acceptance criteria (each maps to a test)
+1. Clipping bounds a per-example gradient to `clip_norm`; zero/under-cap vectors untouched. *(test_dp_trainer)*
+2. Training separable data reaches ≥0.9 accuracy under DP noise. *(test_dp_trainer)*
+3. Deterministic for a fixed seed. *(test_dp_trainer)*
+4. `TrainedModel.result.epsilon` equals `dpsgd_epsilon(config)`. *(test_dp_trainer)*
+5. Invalid data raises; `make_trainer("opacus")` raises NotImplementedError. *(test_dp_trainer)*
+6. CLI `dp-train` runs end-to-end (charge + D4 evidence), exit 2 over-budget, 1 on bad input. *(test_dp_trainer)*
+
+### Security note — randomness
+DP's guarantee assumes good randomness. The reference trainer uses a **seedable** PRNG
+(`random.Random`) for reproducibility/testing, flagged `# noqa: S311` with the explicit
+caveat that a production noise source must be a CSPRNG (numpy Generator / `os.urandom`);
+the Opacus backend uses torch's generator. Cross-validating a CSPRNG-backed run is part of
+the deferred `[torch]` lane.
+
+### Future
+Opacus `DPTrainer` behind `[torch]` (real models, GPU) with an accounting cross-check vs
+this accountant in a torch CI lane; CSPRNG noise option for the reference trainer.
 
 ---
 

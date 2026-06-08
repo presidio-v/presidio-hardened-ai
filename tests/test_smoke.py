@@ -2,4 +2,4 @@ import presidio_ai
 
 
 def test_version_exposed():
-    assert presidio_ai.__version__ == "0.3.0"
+    assert presidio_ai.__version__ == "0.4.0"
