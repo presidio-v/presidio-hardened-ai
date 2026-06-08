@@ -179,6 +179,7 @@ per-silo ε charged to tamper-evident budgets → one signed `D4` the governance
 - [ADR-0003](adr/0003-bounded-norm-input-validation.md) — bounded-norm input validation via zero-knowledge (transparent Pedersen range proofs over the prime-order group; enforces the DP clip sensitivity) (P4, **Accepted & built** v0.19.0–v0.20.0; Ristretto255+Bulletproofs perf backend deferred).
 - [ADR-0004](adr/0004-ristretto-bulletproofs-backend.md) — Ristretto255 + Bulletproofs performance backend: a pluggable `ProofBackend` (audited dalek crates behind `[zk]`, built in `ci-zk`) with the pure-Python MODP proof as a dependency-free fallback; same guarantee (P4, **Accepted & built** v0.21.0–v0.22.0).
 - [ADR-0005](adr/0005-l2-bounded-norm.md) — L2 bounded-norm proofs: commit squares + a square-correctness Σ-proof + range-prove the homomorphic squared-norm, enforcing the *exact* DP clip norm on both backends (P4, **Accepted & built** v0.23.0–v0.24.0).
+- [ADR-0006](adr/0006-guaranteed-output-delivery.md) — guaranteed output delivery: honest-majority robust secret-sharing aggregation (VSS-shared inputs + robust reconstruction) so a misbehaving minority cannot halt the round; interim exclude-and-retry (P4, **Proposed**).
 
 ## SDLC
 
