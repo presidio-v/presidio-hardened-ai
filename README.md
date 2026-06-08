@@ -10,6 +10,7 @@ immutable, auditor-verifiable lineage, and emits cryptographically signed eviden
 that a governance assessment can verify rather than take on trust.
 
 Part of the [`presidio-hardened-*`](https://github.com/presidio-v) toolkit family.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the suite interlocks — the cross-repo claim→evidence loop and an end-to-end `pai` → `iga` demo.
 
 **Design invariant — the ledger holds commitments, never content.** Only hashes,
 counts, and structural metadata are recorded; raw PII and organisational data never
