@@ -11,7 +11,7 @@ counts, and structural metadata are recorded, never raw PII or organisational da
 
 from __future__ import annotations
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 from presidio_ai.dp import DPResult, DPSGDConfig, EpsilonBudget, dpsgd_epsilon, plan_privacy
 from presidio_ai.evidence import (

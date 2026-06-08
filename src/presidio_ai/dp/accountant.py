@@ -6,7 +6,8 @@ The DP-SGD privacy bound is computed by:
    (Mironov, Talwar & Zhang, *Rényi Differential Privacy of the Sampled Gaussian
    Mechanism*, 2019 — integer-order bound), composed additively over ``steps``;
 2. conversion of the composed RDP curve to an ``(epsilon, delta)`` guarantee,
-   minimised over the candidate orders (Mironov 2017).
+   minimised over the candidate orders (Canonne-Kamath-Steinke 2020 — tight; the
+   same conversion Opacus uses).
 
 epsilon/delta semantics: ``delta`` is the failure probability of the
 ``(epsilon, delta)``-DP guarantee for the whole training run (all ``steps``
@@ -121,17 +122,26 @@ def rdp_subsampled_gaussian(alpha: int, sample_rate: float, noise_multiplier: fl
 def rdp_to_epsilon(orders: Sequence[int], rdps: Sequence[float], delta: float) -> tuple[float, int]:
     """Convert a composed RDP curve to (epsilon, optimal_order) for a target delta.
 
-    epsilon(delta) = min_alpha [ rdp(alpha) + log(1/delta) / (alpha - 1) ]
+    Uses the tight Canonne-Kamath-Steinke (2020) conversion (also used by Opacus), per
+    order alpha > 1:
+
+        epsilon(alpha) = rdp(alpha) + log1p(-1/alpha) - (log(delta) + log(alpha))/(alpha-1)
+
+    minimised over the candidate orders. This is a sound upper bound and is never looser
+    than the classic Mironov (2017) bound ``rdp(alpha) + log(1/delta)/(alpha-1)`` — the
+    two extra terms are non-positive for alpha > 1 — so it tightens the reported epsilon.
     """
     if not 0.0 < delta < 1.0:
         raise AccountantError("delta must be in (0, 1)")
     if len(orders) != len(rdps) or not orders:
         raise AccountantError("orders and rdps must be non-empty and equal length")
-    log_inv_delta = math.log(1.0 / delta)
+    log_delta = math.log(delta)
     best_eps = math.inf
     best_order = orders[0]
     for alpha, rdp in zip(orders, rdps, strict=True):
-        eps = rdp + log_inv_delta / (alpha - 1)
+        if alpha <= 1:
+            continue
+        eps = rdp + math.log1p(-1.0 / alpha) - (log_delta + math.log(alpha)) / (alpha - 1)
         if eps < best_eps:
             best_eps, best_order = eps, alpha
     return max(best_eps, 0.0), best_order

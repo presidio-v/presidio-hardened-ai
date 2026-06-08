@@ -90,7 +90,7 @@ pai dp-budget --ledger audit/ledger.jsonl --total-epsilon 10   # spent / remaini
 ```
 
 Accounting uses the integer-order subsampled-Gaussian RDP bound (Mironov–Talwar–Zhang
-2019) with Mironov (2017) RDP→DP conversion. The ε budget is re-derived from the
+2019) with Canonne-Kamath-Steinke (2020) RDP→DP conversion. The ε budget is re-derived from the
 verified ledger chain, so spend cannot be understated without breaking the chain. The
 DP-SGD gradient work plugs in behind the optional `[torch]` extra.
 
