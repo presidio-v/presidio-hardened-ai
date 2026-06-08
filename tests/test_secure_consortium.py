@@ -15,6 +15,7 @@ from presidio_ai.fl.consortium import (
     sign_survivor_set,
     verify_survivor_set,
 )
+from presidio_ai.fl.proof_backend import ModpBackend
 from presidio_ai.fl.secure_agg import SecureAggregationSession
 from presidio_ai.ledger import Ledger, verify_chain
 
@@ -22,6 +23,7 @@ KEY = "0" * 64
 DELTA = 1e-5
 _Q = 30236267232664312970399
 GROUP = SchnorrGroup(p=2 * _Q + 1, q=_Q, g=4, h=hash_to_subgroup(2 * _Q + 1, b"sc-test"))
+BACKEND = ModpBackend(GROUP)
 
 
 def _vsession(parties, dim, threshold=2, seed=3):
@@ -85,7 +87,7 @@ def test_secure_round_happy_path(tmp_path):
         survivor_signatures=_signed_alive(parties, "r1", skeys),
         survivor_keys=skeys,
         survivor_threshold=2,
-        group=GROUP,
+        backend=BACKEND,
         rng=random.Random(11),  # noqa: S311 - test fixture
     )
     expected = [sum(updates[p][k] for p in parties) for k in range(dim)]
@@ -118,7 +120,7 @@ def test_secure_round_rejects_survivor_equivocation(tmp_path):
             survivor_signatures=sigs,
             survivor_keys=skeys,
             survivor_threshold=2,
-            group=GROUP,
+            backend=BACKEND,
         )
 
 
@@ -148,7 +150,7 @@ def test_secure_round_detects_false_aggregate(tmp_path, monkeypatch):
             survivor_signatures=_signed_alive(parties, "r3", skeys),
             survivor_keys=skeys,
             survivor_threshold=2,
-            group=GROUP,
+            backend=BACKEND,
             rng=random.Random(1),  # noqa: S311 - test fixture
         )
 
@@ -174,7 +176,7 @@ def test_secure_round_aborts_on_tampered_vss_share(tmp_path):
             survivor_signatures=_signed_alive(parties, "r4", skeys),
             survivor_keys=skeys,
             survivor_threshold=2,
-            group=GROUP,
+            backend=BACKEND,
             rng=random.Random(1),  # noqa: S311 - test fixture
         )
 
@@ -192,7 +194,7 @@ def test_secure_round_requires_verifiable_session(tmp_path):
             survivor_signatures={},
             survivor_keys={},
             survivor_threshold=1,
-            group=GROUP,
+            backend=BACKEND,
         )
 
 
@@ -215,7 +217,7 @@ def test_secure_round_with_bounded_norm_gate(tmp_path):
         survivor_signatures=_signed_alive(parties, "rb1", skeys),
         survivor_keys=skeys,
         survivor_threshold=2,
-        group=GROUP,
+        backend=BACKEND,
         clip_bound=2.0,
         rng=random.Random(7),  # noqa: S311 - test fixture
     )
@@ -245,7 +247,7 @@ def test_secure_round_rejects_poisoning_update(tmp_path):
             survivor_signatures=_signed_alive(parties, "rb2", skeys),
             survivor_keys=skeys,
             survivor_threshold=2,
-            group=GROUP,
+            backend=BACKEND,
             clip_bound=2.0,
             rng=random.Random(3),  # noqa: S311 - test fixture
         )
