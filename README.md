@@ -94,6 +94,28 @@ Accounting uses the integer-order subsampled-Gaussian RDP bound (Mironov–Talwa
 verified ledger chain, so spend cannot be understated without breaking the chain. The
 DP-SGD gradient work plugs in behind the optional `[torch]` extra.
 
+
+### High-ε authorization (n-of-m)
+
+Require sign-off before a high-privacy-risk run spends budget:
+
+```bash
+# Each approver countersigns the job (out of band):
+pai dp-authorize --job-id fraud-ft --noise-multiplier 1.0 --sample-rate 0.05 \
+    --steps 2000 --approver alice --approver-key "$ALICE_KEY" --quiet
+#   -> {"approval": "alice:<hexsig>", ...}
+
+# The charge requires 2-of-3 approvals at/above epsilon 0:
+pai dp-charge --ledger audit/ledger.jsonl --total-epsilon 10 --job-id fraud-ft \
+    --noise-multiplier 1.0 --sample-rate 0.05 --steps 2000 \
+    --mpa-threshold 2 --mpa-min-epsilon 0 --approver-keys approvers.json \
+    --approval alice:<hexsig> --approval bob:<hexsig>
+```
+
+Approvals are HMAC countersignatures bound to the job's privacy parameters (no
+replay across jobs); the authorization is recorded to the ledger before the charge.
+Exit codes: `2` budget exceeded, `3` authorization denied.
+
 ## Library
 
 ```python
@@ -123,7 +145,8 @@ guard; `0600`/`0700` file permissions.
 | Phase | Version | Theme |
 |---|---|---|
 | P1 | v0.1.0 | Evidence layer: ledger + PII-scrub + signed EvidenceRef |
-| **P2** | **v0.2.0** | **ε-budget accountant + DP governance + DP evidence — current** |
+| P2 | v0.2.0 | ε-budget accountant + DP governance + DP evidence |
+| **P2** | **v0.3.0** | **n-of-m authorization (MPA) for high-ε jobs — current** |
 | P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
 | P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
 | P4 | — | Multi-party consortium (SMPC) — pull-only |

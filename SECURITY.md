@@ -70,6 +70,18 @@ fail-closed. A public-key scheme (sigstore/minisign) can be layered later withou
 changing the `EvidenceRef` shape, which matches the
 `presidio-hardened-ikigov-assess` v0.13.0 contract verbatim.
 
+
+### High-ε authorization (v0.3.0)
+
+- **n-of-m approval** gates budget charges at/above a configured ε threshold, reusing the
+  x402 multi-party-authorization design (HMAC-SHA256 countersignatures).
+- **Replay-bound** — an approval signs the canonical authorization request (job id + the
+  job's privacy parameters), so it cannot be replayed onto a different job or (ε, δ).
+- **Local trust** — approver keys are a local verifier trust store; no network resolution.
+  The recorded `mpa-authorized` ledger entry holds approver ids and the request hash only.
+- **Fail-closed** — insufficient or invalid approval rejects the charge and records nothing
+  (CLI exit 3); over-budget is exit 2.
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:

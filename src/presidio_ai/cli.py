@@ -19,7 +19,16 @@ from pathlib import Path
 import typer
 
 from presidio_ai import __version__
-from presidio_ai.dp import BudgetExceeded, EpsilonBudget, dpsgd_epsilon
+from presidio_ai.dp import (
+    BudgetExceeded,
+    EpsilonBudget,
+    MPADenied,
+    MPAPolicy,
+    build_request,
+    dpsgd_epsilon,
+    request_hash,
+    sign_approval,
+)
 from presidio_ai.evidence import build_dp_evidence, build_ingest_evidence, export_evidence
 from presidio_ai.ingest import ingest_records
 from presidio_ai.ledger import Ledger, LedgerError, verify_chain
@@ -216,6 +225,51 @@ def dp_account(
         )
 
 
+def _parse_approvals(items: list[str] | None) -> dict[str, str]:
+    approvals: dict[str, str] = {}
+    for item in items or []:
+        approver_id, sep, sig = item.partition(":")
+        if not sep or not approver_id or not sig:
+            raise ValidationError(f"--approval must be 'id:hexsig', got {item!r}")
+        approvals[approver_id] = sig
+    return approvals
+
+
+@app.command(name="dp-authorize")
+def dp_authorize(
+    job_id: str = typer.Option(..., "--job-id", help="Job being authorized."),
+    noise_multiplier: float = typer.Option(..., "--noise-multiplier", help="Gaussian noise sigma."),
+    sample_rate: float = typer.Option(..., "--sample-rate", help="Poisson sampling rate q."),
+    steps: int = typer.Option(..., "--steps", help="Number of DP-SGD steps."),
+    delta: float = typer.Option(1e-5, "--delta", help="Guarantee delta."),
+    approver: str = typer.Option(..., "--approver", help="This approver's id."),
+    approver_key: str = typer.Option(..., "--approver-key", help="This approver's signing key."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Approver-side: countersign a job's authorization request (n-of-m approval)."""
+    try:
+        result = dpsgd_epsilon(
+            noise_multiplier=noise_multiplier, sample_rate=sample_rate, steps=steps, delta=delta
+        )
+    except ValueError as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+    req_hash = request_hash(build_request(result, job_id=job_id))
+    signature = sign_approval(req_hash, approver_id=approver, approver_key=approver_key)
+    out = {
+        "approver": approver,
+        "request_hash": req_hash,
+        "signature": signature,
+        "epsilon": result.epsilon,
+        "approval": f"{approver}:{signature}",
+    }
+    if quiet:
+        typer.echo(json.dumps(out))
+    else:
+        typer.echo(f"approver {approver} signed job '{job_id}' (epsilon={result.epsilon:.4f})")
+        typer.echo(f"  --approval {approver}:{signature}")
+
+
 @app.command(name="dp-charge")
 def dp_charge(
     ledger_path: Path = typer.Option(..., "--ledger", help="Path to the JSON-L ledger."),
@@ -230,12 +284,38 @@ def dp_charge(
         None, "--evidence-out", help="Write D4 EvidenceRef JSON."
     ),
     signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    mpa_threshold: int = typer.Option(
+        0, "--mpa-threshold", help="Require n-of-m approval (0=off)."
+    ),
+    mpa_min_epsilon: float = typer.Option(
+        0.0, "--mpa-min-epsilon", help="Authorize at/above this epsilon."
+    ),
+    approver_keys: Path | None = typer.Option(
+        None, "--approver-keys", help="JSON file: {approver_id: key}."
+    ),
+    approval: list[str] | None = typer.Option(
+        None, "--approval", help="Approval as id:hexsig (repeatable)."
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Account a DP-SGD job, charge it to the ledger budget, optionally export evidence."""
     resolved_key = _resolve_key(key)
     job_id = validate_identifier(job_id, what="job-id")
     try:
+        policy = None
+        keys: dict[str, str] = {}
+        approvals: dict[str, str] = {}
+        if mpa_threshold > 0:
+            if approver_keys is None or not approver_keys.exists():
+                _err("error: --approver-keys JSON file is required when --mpa-threshold > 0")
+                raise typer.Exit(1)
+            keys = json.loads(approver_keys.read_text())
+            policy = MPAPolicy(
+                threshold=mpa_threshold,
+                min_epsilon=mpa_min_epsilon,
+                approvers=tuple(sorted(keys)),
+            )
+            approvals = _parse_approvals(approval)
         ledger = Ledger(ledger_path, key=resolved_key)
         budget = EpsilonBudget(total_epsilon, delta, ledger)
         charge = budget.charge_dpsgd(
@@ -243,7 +323,13 @@ def dp_charge(
             noise_multiplier=noise_multiplier,
             sample_rate=sample_rate,
             steps=steps,
+            policy=policy,
+            approvals=approvals,
+            approver_keys=keys,
         )
+    except MPADenied as exc:
+        _err(f"AUTHORIZATION DENIED: {exc}")
+        raise typer.Exit(3) from exc
     except BudgetExceeded as exc:
         _err(f"BUDGET EXCEEDED: {exc}")
         raise typer.Exit(2) from exc
