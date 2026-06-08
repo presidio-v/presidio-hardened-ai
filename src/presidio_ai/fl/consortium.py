@@ -55,6 +55,14 @@ class ConsortiumError(RuntimeError):
     """Raised on a malformed or unauthorized consortium round."""
 
 
+class PartyMisbehavior(ConsortiumError):
+    """An attributable misbehavior by a specific party (enables exclude-and-retry, ADR-0006)."""
+
+    def __init__(self, party_id, message: str) -> None:
+        super().__init__(message)
+        self.party_id = party_id
+
+
 @dataclass(frozen=True)
 class ConsortiumRoundResult:
     round_id: str
@@ -398,11 +406,11 @@ def run_secure_consortium_round(
                     s_updates[sid], party_randomness[sid], bound=bound_fp, rng=rng
                 )
             except ProofError as exc:
-                raise ConsortiumError(
-                    f"input failed bounded-norm for '{sid}' (norm > clip sensitivity): {exc}"
+                raise PartyMisbehavior(
+                    sid, f"input failed bounded-norm for '{sid}' (norm > clip sensitivity): {exc}"
                 ) from exc
             if not backend.verify_bounded(party_commits[sid], norm_proof, bound=bound_fp):
-                raise ConsortiumError(f"bounded-norm proof did not verify for '{sid}'")
+                raise PartyMisbehavior(sid, f"bounded-norm proof did not verify for '{sid}'")
         sensitivity_proven = True
 
     proven_norm = "linf" if sensitivity_proven else None
@@ -416,11 +424,11 @@ def run_secure_consortium_round(
                     s_updates[sid], party_randomness[sid], bound=l2_fp, rng=rng
                 )
             except ProofError as exc:
-                raise ConsortiumError(
-                    f"input failed L2 bound for '{sid}' (||x||2 > clip sensitivity): {exc}"
+                raise PartyMisbehavior(
+                    sid, f"input failed L2 bound for '{sid}' (||x||2 > clip sensitivity): {exc}"
                 ) from exc
             if not backend.verify_l2_bounded(party_commits[sid], l2_proof, bound=l2_fp):
-                raise ConsortiumError(f"L2 bounded-norm proof did not verify for '{sid}'")
+                raise PartyMisbehavior(sid, f"L2 bounded-norm proof did not verify for '{sid}'")
         sensitivity_proven = True
         proven_norm = "l2"
 
@@ -532,3 +540,70 @@ def run_secure_consortium_round(
         ledger_seq=entry.seq,
         evidence_path=out_path,
     )
+
+
+# ── Guaranteed-output-delivery interim: exclude-and-retry (ADR-0006, Option D) ──
+# Liveness under a bounded number of *attributable* cheaters, with no new crypto: run the
+# ADR-0002 security-with-abort round; on a PartyMisbehavior, drop that party (it becomes a
+# dropout the round already tolerates) and re-run among the rest. Honest parties re-sign the
+# (now smaller) survivor set each attempt. This handles malicious *parties*; a malicious
+# coordinator is the case the full GOD aggregation (run_god_consortium_round) removes.
+
+
+@dataclass(frozen=True)
+class RetryRoundResult:
+    result: SecureConsortiumResult
+    excluded: list[Hashable]
+    attempts: int
+
+
+def run_consortium_round_with_retry(
+    *,
+    round_id: str,
+    updates: Mapping[Hashable, Sequence[float]],
+    dp_results: Mapping[Hashable, DPResult],
+    session: SecureAggregationSession,
+    ledger: Ledger,
+    survivor_keys: Mapping[str, str],
+    survivor_threshold: int,
+    max_retries: int | None = None,
+    **round_kwargs: Any,
+) -> RetryRoundResult:
+    """Run the secure round, excluding attributable cheaters and retrying until it completes.
+
+    On a :class:`PartyMisbehavior`, the offending party is dropped and the round re-runs among
+    the remainder (honest parties re-sign the smaller survivor set). Bounded by ``max_retries``
+    (default: the party count). Fails closed if fewer than ``survivor_threshold`` honest parties
+    remain or the retry budget is exhausted.
+    """
+    remaining = dict(updates)
+    excluded: list[Hashable] = []
+    budget = max_retries if max_retries is not None else len(remaining)
+    for attempt in range(1, budget + 2):
+        alive = sorted(str(p) for p in remaining)
+        if len(alive) < survivor_threshold:
+            raise ConsortiumError(
+                f"only {len(alive)} honest parties remain (< threshold {survivor_threshold})"
+            )
+        signatures = {
+            p: sign_survivor_set(round_id, alive, party_id=p, key=survivor_keys[p]) for p in alive
+        }
+        try:
+            result = run_secure_consortium_round(
+                round_id=round_id,
+                updates=remaining,
+                dp_results=dp_results,
+                session=session,
+                ledger=ledger,
+                survivor_signatures=signatures,
+                survivor_keys=survivor_keys,
+                survivor_threshold=survivor_threshold,
+                **round_kwargs,
+            )
+        except PartyMisbehavior as exc:
+            culprit = exc.party_id
+            excluded.append(culprit)
+            remaining = {p: v for p, v in remaining.items() if str(p) != str(culprit)}
+            continue
+        return RetryRoundResult(result=result, excluded=excluded, attempts=attempt)
+    raise ConsortiumError(f"retry budget exhausted after excluding {excluded}")
