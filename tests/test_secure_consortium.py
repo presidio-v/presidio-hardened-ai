@@ -251,3 +251,60 @@ def test_secure_round_rejects_poisoning_update(tmp_path):
             clip_bound=2.0,
             rng=random.Random(3),  # noqa: S311 - test fixture
         )
+
+
+# --- L2 bounded-norm gate (ADR-0005, v0.23.0) -----------------------------
+
+
+def test_secure_round_with_l2_gate(tmp_path):
+    parties = ["bankA", "bankB", "bankC"]
+    dim = 3
+    skeys = {p: f"k-{p}" for p in parties}
+    updates = _updates(parties, dim)  # values in [0, 1) -> small L2 norm
+    sess = _vsession(parties, dim)
+    ledger = Ledger(tmp_path / "round.jsonl", key=KEY)
+    res = run_secure_consortium_round(
+        round_id="l2-1",
+        updates=updates,
+        dp_results=_dp(parties),
+        session=sess,
+        ledger=ledger,
+        survivor_signatures=_signed_alive(parties, "l2-1", skeys),
+        survivor_keys=skeys,
+        survivor_threshold=2,
+        backend=BACKEND,
+        l2_bound=2.0,
+        rng=random.Random(7),  # noqa: S311 - test fixture
+    )
+    expected = [sum(updates[p][k] for p in parties) for k in range(dim)]
+    assert all(abs(a - e) < 1e-3 for a, e in zip(res.aggregate, expected, strict=True))
+    from presidio_ai.fl.consortium import CONSORTIUM_EVENT
+
+    rnd = [e for e in verify_chain(ledger.path, key=KEY) if e.event == CONSORTIUM_EVENT][0].payload
+    assert (
+        rnd["sensitivity_proven"] is True and rnd["proven_norm"] == "l2" and rnd["l2_bound"] == 2.0
+    )
+
+
+def test_secure_round_l2_rejects_high_norm_update(tmp_path):
+    # An update within a generous L∞ but exceeding the L2 bound is rejected.
+    parties = ["bankA", "bankB", "bankC"]
+    dim = 3
+    skeys = {p: f"k-{p}" for p in parties}
+    updates = _updates(parties, dim)
+    updates["bankC"] = [1.5, 1.5, 1.5]  # L2 norm^2 = 6.75 > 2^2 = 4
+    sess = _vsession(parties, dim)
+    with pytest.raises(ConsortiumError, match="L2 bound"):
+        run_secure_consortium_round(
+            round_id="l2-2",
+            updates=updates,
+            dp_results=_dp(parties),
+            session=sess,
+            ledger=Ledger(tmp_path / "r.jsonl", key=KEY),
+            survivor_signatures=_signed_alive(parties, "l2-2", skeys),
+            survivor_keys=skeys,
+            survivor_threshold=2,
+            backend=BACKEND,
+            l2_bound=2.0,
+            rng=random.Random(3),  # noqa: S311 - test fixture
+        )

@@ -80,8 +80,10 @@ CLI command: `pai`
 | v0.19.0 | P4 | Zero-knowledge bounded-norm proofs (`fl.zk`): Pedersen range + L∞ vector — ADR-0003 | Shipped |
 | v0.20.0 | P4 | Bounded-norm ZK gate in the secure round; DP clip sensitivity *proven*, not assumed | Shipped |
 | v0.21.0 | P4 | Pluggable `ProofBackend` interface + MODP backend + auto-dispatch — ADR-0004 | Shipped |
-| v0.22.0 | P4 | Ristretto255 + Bulletproofs native backend (`rust/`, `[zk]`, `ci-zk`) — accelerator | **Current** |
-| — | P4 | **L2** bound (matches the clip norm); guaranteed-output-delivery MPC | Deferred |
+| v0.22.0 | P4 | Ristretto255 + Bulletproofs native backend (`rust/`, `[zk]`, `ci-zk`) — accelerator | Shipped |
+| v0.23.0 | P4 | **L2** bounded-norm proofs (commit-squares) on the MODP backend — ADR-0005 | Shipped |
+| v0.24.0 | P4 | L2 on the Ristretto native backend (square Σ-proof over points + native range) | **Current** |
+| — | P4 | Guaranteed-output-delivery MPC; whole-consortium proof aggregation | Deferred |
 
 ---
 
@@ -716,6 +718,33 @@ gets correct bounded-norm validation, slower. Identical guarantee on both paths.
 the dev sandbox (no Rust toolchain). It builds and self-validates in `ci-zk`; the default gate
 runs the MODP backend. **Deferred:** the **L2** bound (build on this backend's inner-product
 argument) and guaranteed-output-delivery MPC.
+
+---
+
+## v0.23.0–v0.24.0 — L2 Bounded-Norm Proofs (P4, ADR-0005)
+
+ADR-0005's commit-squares construction proves the **exact** DP clip norm `‖x‖₂ ≤ C` (not the
+`√d`-loose L∞ proxy), from standard primitives on both backends.
+
+- **The new primitive — a square-correctness Σ-proof.** Proving `C_y` commits to the square
+  of `C_x`'s value reduces to `C_y = C_x^x · h^{r_y − x·r_x}` — an AND of openings sharing the
+  witness `x`. No arithmetic-circuit (r1cs) machinery.
+- **L2 = squares + homomorphic sum + one range proof.** Each coordinate's square is committed
+  and square-proven; the **homomorphic sum of the square commitments is already a commitment
+  to `Σ x_k²`**, so the squared-norm needs no extra aggregation proof — just range-prove it
+  `≤ C²` with the backend's existing range proof. So L2 is "L∞'s range proof applied once to a
+  homomorphically-assembled squared-norm, plus a square proof."
+- **v0.23.0 (MODP)** is the verified default (pure-Python, the `≤ C²` check via two range
+  proofs). **v0.24.0 (Ristretto native)** expresses the same Σ-protocol from two generic point
+  primitives in the wrapper and delegates the squared-norm check to the native range proof;
+  `ci-zk` validates native↔MODP **decision equivalence**.
+- `run_secure_consortium_round(l2_bound=…)` gates on `‖x‖₂ ≤ C` and records `proven_norm="l2"`
+  on the ledger. A vector within L∞ but over L2 is rejected (the whole point).
+
+**The payoff:** the per-client `(ε, δ)` is now sound against a malicious client at the *exact*
+clip norm DP-SGD uses, not a loose proxy. **Deferred:** guaranteed-output-delivery MPC and
+whole-consortium proof aggregation. *Semantic* (in-norm backdoor) robustness remains out of
+scope for cryptographic validation.
 
 ---
 

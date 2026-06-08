@@ -201,7 +201,7 @@ is within a norm bound, without revealing it:
 available in this environment (no Ristretto255 in the libsodium build; no vetted Python
 Bulletproofs library). v1 therefore uses a textbook, fully-tested range proof over the
 already-vetted MODP-2048 group (same ZK guarantee; `O(n)` proof rather than `O(log n)`). The
-**Ristretto255 + Bulletproofs** performance backend now exists behind the `[zk]` extra (ADR-0004): a pluggable `ProofBackend` selects the audited dalek-based native backend when its wheel is installed and otherwise falls back to the pure-Python MODP proofs. The guarantee is identical on both paths; CI cross-validates *decision equivalence*. The **L2** bound and *semantic* robustness against in-norm backdoors remain future work.
+**Ristretto255 + Bulletproofs** performance backend now exists behind the `[zk]` extra (ADR-0004): a pluggable `ProofBackend` selects the audited dalek-based native backend when its wheel is installed and otherwise falls back to the pure-Python MODP proofs. The guarantee is identical on both paths; CI cross-validates *decision equivalence*. **L2** bounded-norm proofs (the exact DP clip norm, via a square-correctness Σ-proof + a squared-norm range proof) ship on both backends (ADR-0005); the consortium gate enforces `‖x‖₂ ≤ C` and records the proven norm. *Semantic* robustness against in-norm backdoors remains future work.
 
 ## Differential-Privacy Accounting (P2, v0.15.0)
 

@@ -140,3 +140,64 @@ def test_bounded_norm_length_mismatch_fails():
     commitments = _commit_vec(values, randomness)
     proof = prove_bounded(values, randomness, bound=10, group=G, rng=rng)
     assert not verify_bounded(commitments[:2], proof, group=G)
+
+
+# --- L2 bounded-norm: square proof + squared-norm range proof (ADR-0005) ---
+
+from presidio_ai.fl.zk import (  # noqa: E402
+    prove_l2_bounded,
+    prove_square,
+    verify_l2_bounded,
+    verify_square,
+)
+
+
+def test_square_proof_completeness_and_soundness():
+    rng = _rng(20)
+    for x in (0, 1, 7, -5, 123):
+        rx, ry = rng.randrange(G.q), rng.randrange(G.q)
+        cx = pedersen_commit(x, rx, G)
+        cy, sp = prove_square(x, rx, ry, group=G, prefix=1, rng=rng)
+        assert verify_square(cx, cy, sp, group=G, prefix=1)
+        # a commitment to x²+1 is not the square of cx
+        cy_bad = pedersen_commit((x * x) % G.q + 1, ry, G)
+        assert not verify_square(cx, cy_bad, sp, group=G, prefix=1)
+        # transcript binding: wrong prefix fails
+        assert not verify_square(cx, cy, sp, group=G, prefix=2)
+
+
+def _commit(values, randomness):
+    return [pedersen_commit(v, r, G) for v, r in zip(values, randomness, strict=True)]
+
+
+def test_l2_completeness():
+    rng = _rng(21)
+    bound = 50
+    values = [-30, 10, 20]  # ||.||2^2 = 1400 <= 2500
+    randomness = [rng.randrange(G.q) for _ in values]
+    proof = prove_l2_bounded(values, randomness, bound=bound, group=G, rng=rng)
+    assert verify_l2_bounded(_commit(values, randomness), proof, bound=bound, group=G)
+
+
+def test_l2_rejects_vector_within_linf_but_over_l2():
+    # The whole point of L2: each coordinate is within L∞=50, but the norm is too big.
+    rng = _rng(22)
+    values = [50, 50, 50]  # ||.||2^2 = 7500 > 2500
+    randomness = [rng.randrange(G.q) for _ in values]
+    with pytest.raises(ProofError):
+        prove_l2_bounded(values, randomness, bound=50, group=G, rng=rng)
+
+
+def test_l2_bound_binding_and_wrong_commitments():
+    rng = _rng(23)
+    bound = 40
+    values = [-10, 20, 10]
+    randomness = [rng.randrange(G.q) for _ in values]
+    proof = prove_l2_bounded(values, randomness, bound=bound, group=G, rng=rng)
+    commits = _commit(values, randomness)
+    assert verify_l2_bounded(commits, proof, bound=bound, group=G)
+    # a proof for bound=40 must not satisfy a different requested bound
+    assert not verify_l2_bounded(commits, proof, bound=41, group=G)
+    # wrong commitments rejected
+    wrong = _commit([v + 1 for v in values], randomness)
+    assert not verify_l2_bounded(wrong, proof, bound=bound, group=G)
