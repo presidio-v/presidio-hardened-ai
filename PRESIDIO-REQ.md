@@ -64,7 +64,8 @@ CLI command: `pai`
 | v0.3.0 | P2 | n-of-m authorization (MPA) for high-ε jobs (ikigov bridge deferred to ikigov v0.13.0) | Shipped |
 | v0.4.0 | P2 | DP-SGD trainer: verifiable stdlib reference + Opacus adapter seam (`pai dp-train`) | Shipped |
 | v0.5.0 | P3 | Federated learning: FedAvg across silos + secure aggregation + per-client DP (`pai fl-train`) | Shipped |
-| v0.6.0 | P2 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise option for the reference trainer | **Current** |
+| v0.6.0 | P2 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise option for the reference trainer | Shipped |
+| v0.7.0 | — | Ed25519 public-key evidence signing + `pai keygen` (`[crypto]` extra); HMAC stays default | **Current** |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -369,6 +370,55 @@ seedable PRNG remains for reproducible reference/testing). The Opacus path uses
 ### Future
 GPU lane; larger reference models; PRV accountant option to tighten our bound toward
 Opacus'.
+
+---
+
+## v0.7.0 — Public-Key (Ed25519) Evidence Signing
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Add **Ed25519** signing for `EvidenceRef` alongside the HMAC baseline — the public-key
+foundation that lets the IKI-Gov consumer retire shared-secret verification. The
+**signing algorithm is a property of the verifier's trust store** (the verifier knows
+whether a signer uses an HMAC secret or an Ed25519 public key), so the 8-field
+`EvidenceRef` contract is **unchanged**: an Ed25519 signature is 64 bytes / 128 hex,
+within the existing hex bound. Verifiable in CI — unlike torch, `cryptography` runs in
+the default test lane.
+
+### Sequencing (no break to the live loop)
+HMAC-SHA256 remains the **default** signing algorithm this version, so the running
+ikigov v0.13.0 verifier keeps working unchanged. Ed25519 is opt-in (`--algorithm
+ed25519`). The default flips to Ed25519 only after the ikigov consumer learns to verify
+public-key signatures (its trust store entries gaining `{alg, public_key}`) — the
+immediate follow-up.
+
+### Components
+`evidence.py`: `generate_ed25519_keypair`, `sign_ed25519`, `verify_ed25519`, and an
+algorithm dispatch in `_sign`/`build_ingest_evidence`/`build_dp_evidence`
+(`algorithm="hmac-sha256" | "ed25519"`). Lazy `cryptography` import (clear ImportError
+without the `[crypto]` extra). CLI: `pai keygen` (Ed25519 keypair) and `--algorithm` /
+`--signing-key` on `ingest` / `dp-charge` / `dp-train`.
+
+### Acceptance criteria (each maps to a test)
+1. Keypair shapes; fixed-key signature is the deterministic golden vector (RFC 8032). *(test_ed25519)*
+2. Verify is fail-closed: wrong pubkey, tampered content, wrong signer binding, malformed
+   signature all return False. *(test_ed25519)*
+3. `build_*` with `algorithm="ed25519"` produces refs that verify under the public key and
+   do **not** verify under HMAC. *(test_ed25519)*
+4. Ed25519 requires a str private-key hex; unknown algorithm raises. *(test_ed25519)*
+5. CLI: `keygen`; `ingest`/`dp-train --algorithm ed25519 --signing-key` produce
+   pubkey-verifiable evidence; missing key exits 1. *(test_ed25519)*
+
+### Security
+Ed25519 (RFC 8032) detached signatures over the canonical `{content_hash, signer}` — the
+same message HMAC signs, so the two are drop-in at the wire level. Private keys never
+leave the producer; only public keys go in a verifier's trust store. The golden vector
+locks the wire format for the cross-repo consumer.
+
+### Future
+Flip the default to Ed25519 once ikigov verifies it; key rotation / multiple active keys
+per signer; sigstore keyless option.
 
 ---
 

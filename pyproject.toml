@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "presidio-hardened-ai"
-version = "0.6.0"
+version = "0.7.0"
 description = "Training-time privacy for AI: tamper-evident PII-scrub + data-lineage ledger that emits signed governance evidence for the presidio-hardened-* suite."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,11 +32,13 @@ dependencies = ["typer>=0.12"]
 [project.optional-dependencies]
 nlp = ["presidio-analyzer>=2.2", "spacy>=3.7"]
 torch = ["opacus>=1.4", "torch>=2.0"]
+crypto = ["cryptography>=42"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "pip-audit>=2.7",
+    "cryptography>=42",
 ]
 
 [project.scripts]

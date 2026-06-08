@@ -104,6 +104,19 @@ changing the `EvidenceRef` shape, which matches the
   torch CI lane that cross-validates Opacus' privacy accountant against this suite's
   `dpsgd_epsilon` — so the accounting cannot silently diverge between backends.
 
+
+### Public-key evidence signing (v0.7.0)
+
+- **Ed25519 (RFC 8032)** detached signatures are available alongside HMAC for evidence,
+  over the same canonical `{content_hash, signer}` message (drop-in at the wire level).
+- **Asymmetric trust:** the producer holds the private key; a verifier holds only the
+  public key. The signing algorithm is a property of the verifier's trust entry, so the
+  `EvidenceRef` contract is unchanged.
+- **Default stays HMAC** until consumers verify Ed25519, avoiding any break to the live
+  governance loop; the switch is opt-in via `--algorithm ed25519`.
+- `cryptography` is an optional `[crypto]` extra; Ed25519 calls raise a clear ImportError
+  without it. A fixed-key golden vector locks the wire format across repos.
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:

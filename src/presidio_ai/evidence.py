@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from presidio_ai import __version__
-from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
+from presidio_ai.hashing import canonical_bytes, constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ingest import IngestResult
 from presidio_ai.ledger import Ledger
 
@@ -65,7 +65,73 @@ def verify_evidence(ref: EvidenceRef, key: bytes | str) -> bool:
     return constant_time_equals(expected, ref.signature)
 
 
-def _make_ref(item_id: str, content_hash: str, ledger_ref: str, key, signer: str) -> EvidenceRef:
+# ── Public-key signing (Ed25519) — optional [crypto] extra ───────────────────
+# The signing algorithm is a property of the verifier's trust store (the verifier
+# knows whether signer X uses an HMAC secret or an Ed25519 public key), so the
+# EvidenceRef contract stays unchanged. Ed25519 signatures are 64 bytes / 128 hex,
+# within the contract's hex bound. HMAC remains the default until consumers verify
+# Ed25519; flip the default once the trust stores are provisioned with public keys.
+SIGNING_ALGORITHMS = ("hmac-sha256", "ed25519")
+
+
+def _require_crypto():
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ed25519
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise ImportError(
+            "Ed25519 signing needs the optional extra: pip install 'presidio-hardened-ai[crypto]'"
+        ) from exc
+    return ed25519
+
+
+def generate_ed25519_keypair() -> tuple[str, str]:
+    """Return (private_key_hex, public_key_hex). Keep the private key secret."""
+    ed25519 = _require_crypto()
+    sk = ed25519.Ed25519PrivateKey.generate()
+    return sk.private_bytes_raw().hex(), sk.public_key().public_bytes_raw().hex()
+
+
+def sign_ed25519(content_hash: str, signer: str, private_key_hex: str) -> str:
+    """Detached Ed25519 signature over the canonical {content_hash, signer} message."""
+    ed25519 = _require_crypto()
+    sk = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
+    return sk.sign(canonical_bytes({"content_hash": content_hash, "signer": signer})).hex()
+
+
+def verify_ed25519(content_hash: str, signer: str, signature_hex: str, public_key_hex: str) -> bool:
+    """Verify an Ed25519 signature against a public key (fail-closed)."""
+    from cryptography.exceptions import InvalidSignature
+
+    ed25519 = _require_crypto()
+    try:
+        pk = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
+        pk.verify(
+            bytes.fromhex(signature_hex),
+            canonical_bytes({"content_hash": content_hash, "signer": signer}),
+        )
+        return True
+    except (InvalidSignature, ValueError):
+        return False
+
+
+def _sign(content_hash: str, signer: str, *, algorithm: str, signing_key: bytes | str) -> str:
+    if algorithm == "hmac-sha256":
+        return sign_evidence(content_hash, signing_key, signer)
+    if algorithm == "ed25519":
+        if not isinstance(signing_key, str):
+            raise ValueError("ed25519 signing_key must be the private key hex string")
+        return sign_ed25519(content_hash, signer, signing_key)
+    raise ValueError(f"unknown signing algorithm: {algorithm!r} (use one of {SIGNING_ALGORITHMS})")
+
+
+def _make_ref(
+    item_id: str,
+    content_hash: str,
+    ledger_ref: str,
+    signing_key: bytes | str,
+    signer: str,
+    algorithm: str = "hmac-sha256",
+) -> EvidenceRef:
     return EvidenceRef(
         item_id=item_id,
         source=SOURCE,
@@ -73,7 +139,7 @@ def _make_ref(item_id: str, content_hash: str, ledger_ref: str, key, signer: str
         ledger_ref=ledger_ref,
         content_hash=content_hash,
         signer=signer,
-        signature=sign_evidence(content_hash, key, signer),
+        signature=_sign(content_hash, signer, algorithm=algorithm, signing_key=signing_key),
         claimed_at=_utc_now(),
     )
 
@@ -84,6 +150,7 @@ def build_ingest_evidence(
     ledger: Ledger,
     signing_key: bytes | str,
     signer: str,
+    algorithm: str = "hmac-sha256",
 ) -> list[EvidenceRef]:
     """Build signed D1/D4/O5 evidence references from an ingest result.
 
@@ -93,9 +160,9 @@ def build_ingest_evidence(
     """
     ingest_ref = f"pai-ledger:seq/{result.ledger_seq}"
     refs = [
-        _make_ref("D1", result.content_hash, ingest_ref, signing_key, signer),
-        _make_ref("D4", result.content_hash, ingest_ref, signing_key, signer),
-        _make_ref("O5", ledger.head_hash, "pai-ledger:head", signing_key, signer),
+        _make_ref("D1", result.content_hash, ingest_ref, signing_key, signer, algorithm),
+        _make_ref("D4", result.content_hash, ingest_ref, signing_key, signer, algorithm),
+        _make_ref("O5", ledger.head_hash, "pai-ledger:head", signing_key, signer, algorithm),
     ]
     return refs
 
@@ -125,7 +192,14 @@ SUPPORTED_DP_ITEMS: dict[str, str] = {
 }
 
 
-def build_dp_evidence(result, *, signing_key: bytes | str, signer: str, charge_seq: int):
+def build_dp_evidence(
+    result,
+    *,
+    signing_key: bytes | str,
+    signer: str,
+    charge_seq: int,
+    algorithm: str = "hmac-sha256",
+):
     """Build a signed D4 EvidenceRef from a DP accounting result.
 
     ``result`` is a ``presidio_ai.dp.accountant.DPResult``; ``charge_seq`` is the
@@ -134,4 +208,4 @@ def build_dp_evidence(result, *, signing_key: bytes | str, signer: str, charge_s
     """
     content_hash = sha256_hex(result.as_dict())
     ledger_ref = f"pai-ledger:seq/{charge_seq}"
-    return [_make_ref("D4", content_hash, ledger_ref, signing_key, signer)]
+    return [_make_ref("D4", content_hash, ledger_ref, signing_key, signer, algorithm)]

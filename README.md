@@ -168,6 +168,22 @@ accountant so evidence is consistent. A dedicated CI lane (`ci-torch.yml`) insta
 extra and cross-validates Opacus' privacy accountant against ours. For production DP
 noise in the reference trainer, pass `secure_rng=True` (CSPRNG, non-deterministic).
 
+
+### Public-key evidence signing (Ed25519)
+
+```bash
+pip install "presidio-hardened-ai[crypto]"
+pai keygen                       # -> private_key / public_key (hex); keep the private one secret
+
+pai ingest --source crm --input data.jsonl --ledger audit/ledger.jsonl \
+    --evidence-out audit/evidence.json --algorithm ed25519 --signing-key "$PRIVATE_HEX"
+```
+
+The verifier holds only the **public** key (in its trust store); the algorithm is a
+property of that trust entry, so the `EvidenceRef` contract is unchanged. HMAC-SHA256
+remains the default until consumers verify Ed25519. Signatures are deterministic
+(RFC 8032) and verify with `verify_ed25519(content_hash, signer, signature, public_key)`.
+
 ## Library
 
 ```python
@@ -201,7 +217,8 @@ guard; `0600`/`0700` file permissions.
 | P2 | v0.3.0 | n-of-m authorization (MPA) for high-ε jobs |
 | P2 | v0.4.0 | DP-SGD trainer: reference + Opacus seam (`pai dp-train`) |
 | P3 | v0.5.0 | Federated learning: FedAvg + secure aggregation (`pai fl-train`) |
-| **P2** | **v0.6.0** | **Opacus DP-SGD backend + torch CI lane; CSPRNG noise — current** |
+| P2 | v0.6.0 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise |
+| **—** | **v0.7.0** | **Ed25519 public-key evidence signing + `pai keygen` — current** |
 | P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
 | P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
 | P4 | — | Multi-party consortium (SMPC) — pull-only |
