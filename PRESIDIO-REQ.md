@@ -19,6 +19,8 @@ Because a single org training on its own data has no counterparty, SMPC is out o
 and federated learning is deferred (P3); v1 is an open-weights, in-VPC play by
 construction (DP-SGD needs gradient access a hosted frontier API will not give).
 
+Strategy and threat model: see [`docs/PLAN.md`](docs/PLAN.md).
+
 **Design invariant — the ledger holds commitments, never content.** Only hashes,
 counts, and structural metadata are persisted; raw PII and organisational data never
 enter the ledger, the evidence file, or the security log. This mirrors the family's
@@ -57,8 +59,8 @@ CLI command: `pai`
 
 | Version | Phase | Theme | Status |
 |---|---|---|---|
-| v0.1.0 | P1 | Evidence layer: tamper-evident ledger + PII-scrub on ingest + signed `EvidenceRef` export | **Current** |
-| v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | Planned |
+| v0.1.0 | P1 | Evidence layer: tamper-evident ledger + PII-scrub on ingest + signed `EvidenceRef` export | Shipped |
+| v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | **Current** |
 | v0.3.0 | P2 | n-of-m authorization for high-ε jobs; ikigov MCP bridge (`iga assess --evidence`) | Planned |
 | v0.4.0 | P3 | Federated learning for cross-border / cross-silo data | Planned |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
@@ -106,6 +108,69 @@ export never overstates what the ledger proves.
   mathematical backstop for residual recall and is deliberately deferred.
 - **HMAC baseline, not public-key** — reuses the v0.9.0 family signature primitive;
   sigstore/minisign can be layered later without changing `EvidenceRef`.
+
+---
+
+## v0.2.0 — P2: ε-Budget Accountant & DP Governance
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Ship the *verifiable governance core* of differential privacy — privacy accounting,
+the org ε-budget, and DP evidence — with the actual DP-SGD gradient work behind an
+optional `[torch]` extra (mirrors P1's `[nlp]` split). The core carries **no heavy
+dependency** (pure stdlib `math`) so the privacy guarantee is fully testable in CI.
+
+### Components
+`dp/accountant.py` (RDP of the subsampled Gaussian + composition + RDP→DP conversion),
+`dp/budget.py` (ledger-derived ε spend + over-budget guard), `dp/trainer.py`
+(public-base/private-delta planning surface), DP `EvidenceRef` (`evidence.build_dp_evidence`),
+and CLI (`pai dp-account`, `pai dp-charge`, `pai dp-budget`).
+
+### DP semantics (pinned — do not change silently)
+`(epsilon, delta)`-DP for the **whole training run** (all `steps` composed) under
+**Poisson subsampling** at rate `sample_rate`, per-step **L2 clipping to sensitivity 1**,
+and **Gaussian noise** of std `noise_multiplier`. `delta` is the guarantee's failure
+probability. Accounting method (authoritative references):
+- Subsampled-Gaussian RDP, **integer-order** bound — Mironov, Talwar & Zhang (2019).
+- RDP→`(ε,δ)` conversion — Mironov (2017): `ε(δ) = min_α [ rdp(α) + ln(1/δ)/(α-1) ]`.
+- Step composition: additive in RDP. Cross-job composition: **basic** (ε add, δ add) —
+  always sound, matches the "finite budget spent down" framing.
+Integer orders only → a sound **upper bound** (slightly looser than a fractional-order
+accountant). Orders scanned: 2…256.
+
+### Acceptance criteria (each maps to a test)
+1. `q=0 ⇒ RDP=0`; `q=1 ⇒ RDP = α/(2σ²)` exactly (closed-form oracles). *(test_accountant)*
+2. Stable log-sum-exp == independent direct summation to rel 1e-9. *(test_accountant)*
+3. ε strictly increases with `steps` and `sample_rate`, decreases with `noise_multiplier`. *(test_accountant)*
+4. `steps=0 ⇒ ε=0`; invalid params raise `AccountantError`. *(test_accountant)*
+5. Budget `spent()` is re-derived from the **verified** ledger chain and **fails closed**
+   if the ledger is tampered. *(test_budget)*
+6. A charge that would exceed the budget raises `BudgetExceeded`, records **no** entry,
+   and the CLI exits **2**. *(test_budget, test_dp_cli)*
+7. Charge payloads contain **privacy parameters only** (no PII). *(test_budget)*
+8. DP evidence emits **D4** only, verifies under signature, and its content hash commits
+   to the privacy parameters. *(test_dp_evidence)*
+
+### Validation beyond unit tests
+The accountant's outputs match published DP-SGD magnitudes — e.g. σ=1.1,
+q≈256/60000, 5000 steps, δ=1e-5 ⇒ ε≈1.83 — providing an external sanity anchor on top
+of the closed-form oracles.
+
+### Evidence mapping
+**D4** only (DPIA input: quantified `(ε,δ)` re-identification/membership bound). T4
+(robustness) and EU AI Act Art. 15 framing are deferred so the export never overstates
+what the accounting proves.
+
+### Security
+Privacy parameters (ε, δ, σ, q, steps) are **evidence, not PII** and are recorded to the
+ledger by design. The budget is tamper-evident (spend derived from the MAC-verified
+chain). Over-budget is fail-closed.
+
+### Known limitations / future
+Fractional-order (tighter) RDP and the Canonne–Kamath–Steinke (2020) conversion; RDP-level
+cross-job composition (tighter than basic); the Opacus-backed `DPTrainer` and its
+cross-validation against this accountant, wired under the `[torch]` extra in CI.
 
 ---
 

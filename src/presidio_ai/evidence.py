@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from presidio_ai import __version__
-from presidio_ai.hashing import constant_time_equals, hmac_hex
+from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ingest import IngestResult
 from presidio_ai.ledger import Ledger
 
@@ -114,3 +114,24 @@ def export_evidence(refs: list[EvidenceRef], path: str | Path, *, use_case: str)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+# ── Differential-privacy evidence (P2) ──────────────────────────────────────
+# DP-SGD's (epsilon, delta) bound is a quantified re-identification / membership
+# limit — a direct DPIA input. P2 emits D4 only (high confidence); robustness
+# (T4) / EU AI Act Art. 15 framing is deferred so the export never overstates.
+SUPPORTED_DP_ITEMS: dict[str, str] = {
+    "D4": "DPIA input: quantified (epsilon, delta) bound from DP-SGD accounting",
+}
+
+
+def build_dp_evidence(result, *, signing_key: bytes | str, signer: str, charge_seq: int):
+    """Build a signed D4 EvidenceRef from a DP accounting result.
+
+    ``result`` is a ``presidio_ai.dp.accountant.DPResult``; ``charge_seq`` is the
+    ledger sequence of the budget-charge entry the evidence points at. The content
+    hash commits to the privacy parameters (epsilon, delta, noise, rate, steps).
+    """
+    content_hash = sha256_hex(result.as_dict())
+    ledger_ref = f"pai-ledger:seq/{charge_seq}"
+    return [_make_ref("D4", content_hash, ledger_ref, signing_key, signer)]
