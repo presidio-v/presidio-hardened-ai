@@ -5,7 +5,7 @@
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — the deferred "consortium" prize
 
-> **Implementation status (v0.11.0).** Accepted and started. The pure-Python secure-aggregation **core** — antisymmetric pairwise masks, self-masks, and Shamir t-of-n dropout recovery — ships in `presidio_ai.fl.secure_agg`, verified to reproduce plaintext FedAvg with and without dropout (action items 3 & 6). Still deferred to the `[mpc]` lane: authenticated pairwise key agreement (seeds modelled in-process today), the network transport, field-quantised exact arithmetic, and DP/MPA/evidence composition per round (items 2, 4, 5).
+> **Implementation status (v0.11.0–v0.15.0).** Accepted and built out. The pure-Python secure-aggregation **core** — antisymmetric pairwise masks, self-masks, and Shamir t-of-n dropout recovery — ships in `presidio_ai.fl.secure_agg`, verified to reproduce plaintext FedAvg with and without dropout (action items 3 & 6). Still deferred to the `[mpc]` lane: authenticated pairwise key agreement (seeds modelled in-process today), the network transport, field-quantised exact arithmetic, and DP/MPA/evidence composition per round (items 2, 4, 5).
 
 ## Context
 
@@ -151,19 +151,27 @@ in the suite.
 - Party count grows beyond ~20, or WAN latency dominates → reconsider topology / HE
   packing.
 
+> **Beyond the original items:** v0.12.0 also moved masking into exact field-quantised
+> arithmetic (no float-cancellation error), and v0.15.0 tightened the per-party DP bound
+> with a fractional-order RDP accountant. Remaining: malicious-security hardening
+> (commitments / VSS) — the ADR's stated revisit trigger.
+
 ## Action Items
-1. [ ] Write the threat-model section (adversary = HbC coordinator + ≤`t` colluding
-       parties; malicious-secure out of scope) into `PRESIDIO-REQ.md`.
-2. [ ] Define the protocol: authenticated pairwise key agreement → per-pair PRG masks →
+1. [x] Write the threat-model section (adversary = HbC coordinator + ≤`t` colluding
+       parties; malicious-secure out of scope) — PRESIDIO-REQ v0.14.0 entry + SECURITY.md.
+2. [x] Define the protocol: authenticated pairwise key agreement → per-pair PRG masks →
        Shamir secret-sharing of seeds for dropout recovery (Bonawitz §4).
+       **Done v0.14.0** — `fl.keyagreement` (X25519 + HKDF + Ed25519-authenticated).
 3. [x] Implement the **pure-Python core** (mask generation, share/reconstruct, dropout
        recovery) with CSPRNG; unit-test mask cancellation and t-of-n recovery.
        **Done in v0.11.0** — `presidio_ai.fl.secure_agg` (`SecureAggregationSession`,
        `shamir_split`/`shamir_reconstruct`); 11 tests.
-4. [ ] Wire the network/transport layer behind a `[mpc]` extra; integration-test in a
-       dedicated CI lane (as the Opacus `[torch]` lane).
-5. [ ] Compose: per-client DP on inputs; n-of-m MPA to authorize a consortium round;
+4. [x] Wire the network/transport layer behind a `[mpc]` extra; integration-test in a
+       dedicated CI lane (as the Opacus `[torch]` lane). **Done v0.14.0** — `fl.transport`
+       + `ci-mpc` lane.
+5. [x] Compose: per-client DP on inputs; n-of-m MPA to authorize a consortium round;
        one signed `D4` evidence + ledger entry per round (aggregate only).
+       **Done v0.13.0** — `fl.consortium.run_consortium_round` / `pai consortium-round`.
 6. [x] Cross-check the protocol's aggregate equals plaintext FedAvg (and the v0.5.0
        reference) within float tolerance. **Done in v0.11.0** (no-dropout aggregate
        == plain sum; dropout aggregate == survivor sum).

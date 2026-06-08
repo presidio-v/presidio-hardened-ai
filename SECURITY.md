@@ -118,6 +118,48 @@ changing the `EvidenceRef` shape, which matches the
 - `cryptography` is an optional `[crypto]` extra; Ed25519 calls raise a clear ImportError
   without it. A fixed-key golden vector locks the wire format across repos.
 
+## Secure Aggregation & Consortium Rounds (P4, v0.11.0–v0.14.0)
+
+Multi-party consortium training (ADR-0001) lets mutually-distrusting parties compute an
+aggregate model update such that the coordinator — and any colluding minority below the
+threshold — learns only the aggregate, never an individual party's update. Controls:
+
+- **Secure aggregation by additive masking** (`fl.secure_agg`) — antisymmetric pairwise
+  masks cancel in the sum; per-party self-masks close the dropped-party stripping window.
+  All masking and reconstruction are **exact in GF(prime)** (v0.12.0): no floating-point
+  cancellation error, no overflow within the documented fixed-point range.
+- **Dropout recovery via Shamir t-of-n** — self/pairwise seeds are secret-shared; the
+  coordinator reconstructs only what is needed to strip masks. **Fail-closed:** fewer than
+  `threshold` survivors cannot reconstruct and the round aborts rather than leaking.
+- **Authenticated key agreement** (`fl.keyagreement`, `[mpc]` extra) — pairwise seeds come
+  from X25519 ECDH → HKDF-SHA256, domain-separated per round. Each DH public key is
+  **Ed25519-signed** under the party's identity key and verified against a local trust
+  store; an unsigned, mis-signed, or unknown key is rejected, defeating a coordinator that
+  tries to MITM the exchange by substituting its own DH key. Seeds are drawn from a CSPRNG.
+- **Governed rounds** (`fl.consortium`) — a round runs only after n-of-m MPA authorization
+  (gated on the worst-case per-party ε, recorded to the ledger first); each silo's (ε, δ)
+  is charged to its own tamper-evident budget; and exactly one signed **D4** EvidenceRef is
+  emitted, committing to the **aggregate only** (its field-domain hash) plus the worst-case
+  bound — never an individual update. Commitments-only, like every other ledger event.
+- **Transport** (`fl.transport`, `[mpc]` extra) — the masked vectors are exactly what the
+  coordinator is permitted to see; the wire decoder validates party id, dimension, and that
+  every element is a canonical field element, fail-closed. TLS and bind address are
+  deployment configuration.
+
+**Threat model (v1).** Honest-but-curious coordinator + ≤`t` colluding parties.
+Malicious-security (a coordinator or parties that deviate from the protocol) is explicitly
+out of scope; hardening it needs commitments / verifiable secret sharing (the ADR-0001
+revisit trigger).
+
+## Differential-Privacy Accounting (P2, v0.15.0)
+
+The DP-SGD ε reported by the accountant and charged to budgets is a sound upper bound. As
+of v0.15.0 it is minimised over a grid that includes **fractional Rényi orders** (the
+TF-Privacy/Opacus log-A series, pure stdlib), which can only lower the bound — so the
+reported ε is **≤** the integer-only result and never overstated-low. The fractional
+series is validated to converge to the exact integer closed form as the order approaches
+an integer, and is cross-validated against Opacus in the torch CI lane.
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:

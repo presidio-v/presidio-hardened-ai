@@ -69,8 +69,12 @@ CLI command: `pai`
 | v0.8.0 | — | Ed25519 becomes the **default** signing algorithm (coordinated with ikigov v0.14.0 verification) | Shipped |
 | v0.9.0 | P3 | FL governance: per-silo ε-budget charging + signed D4 evidence in `pai fl-train` (`--charge`) | Shipped |
 | v0.10.0 | P2 | Tighter RDP→DP conversion (Canonne-Kamath-Steinke 2020); strictly ≤ the prior bound | Shipped |
-| v0.11.0 | P4 | Secure-aggregation core: additive masking + Shamir dropout recovery (`fl.secure_agg`) — ADR-0001 | **Current** |
-| — | P4 | Consortium network/transport (`[mpc]` lane), field-quantised arithmetic, per-round DP/MPA/evidence | Deferred |
+| v0.11.0 | P4 | Secure-aggregation core: additive masking + Shamir dropout recovery (`fl.secure_agg`) — ADR-0001 | Shipped |
+| v0.12.0 | P4 | Exact field-quantised secure aggregation (no float-cancellation error) | Shipped |
+| v0.13.0 | P4 | Governed consortium rounds: MPA + per-silo DP + one signed D4 (`pai consortium-round`) | Shipped |
+| v0.14.0 | P4 | `[mpc]` lane: authenticated X25519 key agreement + transport wire format | Shipped |
+| v0.15.0 | P2 | Fractional-order RDP accountant (TF-Privacy/Opacus series); ≤ integer-only ε | **Current** |
+| — | P4 | `[mpc]` malicious-security hardening (commitments / VSS), HE packing for large consortia | Deferred |
 
 ---
 
@@ -549,6 +553,65 @@ or threshold HE — ADR-0001 Option C).
 tolerance and overflow), and per-round composition — per-client DP on inputs, n-of-m MPA
 to authorize a round, and one signed `D4` evidence + ledger entry per consortium round
 (aggregate only).
+
+---
+
+## v0.12.0 — Exact Field-Quantised Secure Aggregation (P4)
+
+The v0.11.0 core masked in floating point, so cancellation was exact only to rounding.
+v0.12.0 moves all masking and reconstruction into the prime field GF(`PRIME`): real
+updates are quantised once at the boundary (fixed-point, `frac_bits`) and the field
+aggregate de-quantised once at the end. Cancellation is now **exact** (integer equality,
+verified), with no float accumulation and no overflow within `±PRIME/2` fixed-point units.
+The hash-based field PRG (SHA-256 counter mode, 128-bit reduction, bias ≤ 2⁻⁶⁷) replaces
+the float PRG. `set_pairwise_seed` adds the seam the key-agreement layer plugs into.
+
+---
+
+## v0.13.0 — Governed Consortium Rounds (P4)
+
+`run_consortium_round` makes one round a governed operation end to end: **(1)** n-of-m MPA
+authorises the round (gated on the worst-case per-party ε, recorded to the ledger before
+any aggregation); **(2)** survivors' updates are combined by exact secure aggregation
+(coordinator sees only the aggregate; dropout-recovered or fail-closed); **(3)** each silo's
+(ε, δ) is charged to its **own** ledger budget (distributed DP); **(4)** one signed **D4**
+EvidenceRef commits to the *aggregate only* + worst-case bound, pointing at a
+commitments-only `consortium-round` ledger entry. CLI: `pai consortium-round`.
+
+---
+
+## v0.14.0 — `[mpc]` Lane: Authenticated Key Agreement + Transport (P4)
+
+Replaces the in-process seed assumption with real cryptography. **X25519** Diffie–Hellman
+→ **HKDF-SHA256** → field-element seed, with an order-independent `info` (sorted ids +
+session id) so both endpoints derive the same seed and rounds are domain-separated. Each
+DH public key is **Ed25519-signed** under the party's identity key and verified against a
+local trust store; `establish_pairwise_seeds` is **fail-closed** — a coordinator that
+substitutes its own DH key for a party it lacks the identity key for is rejected (MITM
+defeated). A validated `MaskedSubmission` wire format + a thin Starlette/uvicorn
+coordinator sit behind the `[mpc]` extra; verifiable core (key agreement, wire format)
+runs in the default lane, with a dedicated `ci-mpc` lane for the full stack.
+
+**Deferred (next P4 step):** malicious-security hardening — the coordinator/parties are
+honest-but-curious in v1; a malicious model needs commitments / verifiable secret sharing
+(ADR-0001 revisit trigger), and very large consortia may want HE packing (Option C).
+
+---
+
+## v0.15.0 — Fractional-Order RDP Accountant (P2)
+
+Adds non-integer Rényi orders to the subsampled-Gaussian accountant. Integer orders keep
+the exact closed-form binomial bound; fractional orders use the canonical TF-Privacy/Opacus
+log-A series with a pure-stdlib stable `_log_erfc` (`math.erfc` below x=20, asymptotic
+expansion above). `dpsgd_epsilon` minimises over `FRACTIONAL_ORDERS` by default, so the
+reported ε is **≤** the integer-only result (`DEFAULT_ORDERS` retained as the oracle). In
+high-sampling-rate regimes a sub-2 order strictly wins (e.g. ε 118 vs 246 at q=0.2).
+
+**Verified:** the fractional series converges to the integer closed form as α→integer
+(residual scales linearly with the offset — a derivative term, not error); RDP monotone in
+α; fractional grid never looser than integer; Opacus cross-validation tightened to rel=0.2.
+The series coefficient is updated incrementally (O(n), not O(n²)); non-converging fractional
+orders are skipped (integers always succeed), never aborting.
 
 ---
 
