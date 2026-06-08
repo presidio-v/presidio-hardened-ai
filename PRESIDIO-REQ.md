@@ -82,8 +82,11 @@ CLI command: `pai`
 | v0.21.0 | P4 | Pluggable `ProofBackend` interface + MODP backend + auto-dispatch — ADR-0004 | Shipped |
 | v0.22.0 | P4 | Ristretto255 + Bulletproofs native backend (`rust/`, `[zk]`, `ci-zk`) — accelerator | Shipped |
 | v0.23.0 | P4 | **L2** bounded-norm proofs (commit-squares) on the MODP backend — ADR-0005 | Shipped |
-| v0.24.0 | P4 | L2 on the Ristretto native backend (square Σ-proof over points + native range) | **Current** |
-| — | P4 | Guaranteed-output-delivery MPC; whole-consortium proof aggregation | Deferred |
+| v0.24.0 | P4 | L2 on the Ristretto native backend (square Σ-proof over points + native range) | Shipped |
+| v0.25.0 | P4 | GOD interim: exclude-and-retry liveness (`run_consortium_round_with_retry`) — ADR-0006 D | Shipped |
+| v0.26.0 | P4 | Robust reconstruction (`robust_reconstruct`) — verify/discard/interpolate | Shipped |
+| v0.27.0 | P4 | GOD aggregation + round (`fl.god`, `run_god_consortium_round`) — honest-majority | **Current** |
+| — | P4 | Bounded-norm↔shared-input equality binding; whole-consortium proof aggregation | Deferred |
 
 ---
 
@@ -745,6 +748,36 @@ ADR-0005's commit-squares construction proves the **exact** DP clip norm `‖x�
 clip norm DP-SGD uses, not a loose proxy. **Deferred:** guaranteed-output-delivery MPC and
 whole-consortium proof aggregation. *Semantic* (in-norm backdoor) robustness remains out of
 scope for cryptographic validation.
+
+---
+
+## v0.25.0–v0.27.0 — Guaranteed Output Delivery (P4, ADR-0006, Option A)
+
+ADR-0006 upgrades ADR-0002's security-with-abort to **guaranteed output delivery**: the round
+delivers the correct aggregate even when a minority misbehaves, so one bad member cannot DoS
+the consortium. The precondition is an **honest majority** (`n ≥ 2t+1`) — a trust premise the
+consortium accepts.
+
+- **v0.25.0 — interim (Option D).** `run_consortium_round_with_retry` runs the ADR-0002 round
+  and, on an attributable `PartyMisbehavior`, drops the culprit (it becomes a tolerated
+  dropout) and re-runs among the rest, with honest parties re-signing the smaller survivor set.
+  GOD-in-practice for malicious *parties* with zero new crypto.
+- **v0.26.0 — robust reconstruction.** `robust_reconstruct` verifies shares against the Feldman
+  commitments, discards invalid ones, and interpolates from a valid quorum — robust *detection*
+  (so `n ≥ 2t+1` suffices, not `3t+1`).
+- **v0.27.0 — robust secret-sharing aggregation (Option A).** Each party VSS-shares its update;
+  shares add locally (sum of shares = a sharing of the sum, no multiplication); the sum is
+  robustly reconstructed by any honest quorum. A **malicious dealer** is excluded (its
+  inconsistent shares fail Feldman verification); a **malicious holder** is discarded (its bad
+  summed-share fails the homomorphically-combined commitments); and there is **no coordinator**
+  to halt the round. `run_god_consortium_round` composes MPA + per-silo DP + a signed `D4` and
+  records `mode="god"` + the excluded set on the ledger.
+
+**Right-sized:** because the target is a *sum*, GOD needs no multiplication gates — Option A is
+general GOD-MPC specialised to linear functions, reusing the suite's Feldman VSS. **Remaining
+(ADR-0006 item 4):** binding the bounded-norm ZK gate to the *shared* inputs needs a small
+cross-commitment equality proof. **Deferred:** whole-consortium proof aggregation; general
+GOD-MPC for non-linear aggregates; verifiable threshold HE.
 
 ---
 

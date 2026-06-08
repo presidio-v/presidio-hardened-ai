@@ -212,6 +212,27 @@ reported ε is **≤** the integer-only result and never overstated-low. The fra
 series is validated to converge to the exact integer closed form as the order approaches
 an integer, and is cross-validated against Opacus in the torch CI lane.
 
+## Guaranteed Output Delivery (P4, v0.25.0–v0.27.0, ADR-0006)
+
+ADR-0002 gives security-with-abort; ADR-0006 adds **guaranteed output delivery (GOD)** — the
+round delivers the correct aggregate even when a minority of parties (or the coordinator)
+actively misbehave, so one bad member cannot deny service to the consortium.
+
+- **Honest-majority robust secret-sharing aggregation** (`fl.god`) — each party Feldman-VSS-
+  shares its update; shares add locally (the sum of shares is a sharing of the sum); the
+  aggregate is **robustly reconstructed** (`robust_reconstruct`): verify each share against
+  the homomorphically-combined commitments, discard the invalid, interpolate from a valid
+  quorum. A **malicious dealer** is excluded; a **malicious holder** is discarded; and there
+  is **no coordinator** to halt the round.
+- **Exclude-and-retry interim** (`run_consortium_round_with_retry`) — for deployments not yet
+  on the GOD path, the ADR-0002 round plus attributable cheater exclusion gives liveness under
+  bounded cheating with no new crypto.
+
+**Trust premise.** GOD is achievable **only under an honest majority** (`n ≥ 2t+1`); a dishonest
+majority can always withhold the output. Adopting GOD therefore means the consortium accepts a
+majority-honest assumption — stricter than the ADR-0001/0002 collusion bound. Outside honest
+majority, fall back to ADR-0002 security-with-abort (the round aborts attributably).
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:

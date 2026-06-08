@@ -1,6 +1,6 @@
 # ADR-0006: Guaranteed output delivery for the consortium round
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-09
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — deliver the correct aggregate even when a minority of
@@ -8,6 +8,14 @@ parties (or the coordinator) actively misbehave
 **Amends:** [ADR-0002](0002-malicious-security-hardening.md) — upgrades its *security-with-
 abort* to *guaranteed output delivery* (GOD); builds on the [ADR-0001](0001-multiparty-secure-aggregation.md)
 sum aggregation and the ADR-0002 Feldman VSS.
+
+> **Implementation status (v0.25.0–v0.27.0).** Accepted; built (Option A + interim D). v0.25.0
+> ships exclude-and-retry liveness (`run_consortium_round_with_retry`); v0.26.0 the robust
+> reconstruction (`commit.robust_reconstruct`); v0.27.0 the shared-input GOD aggregation
+> (`fl.god`) + `run_god_consortium_round` (items 1–3, 5–7). **Remaining (item 4):** binding
+> the bounded-norm ZK gate to the *shared* inputs needs a cross-commitment equality proof —
+> the GOD aggregation and the bounded-norm gate both exist; wiring them on the GOD path is
+> the open sub-item. All pure-Python and verified in the default gate.
 
 ## Context
 
@@ -170,24 +178,25 @@ lands.
 - The suite adopts threshold HE for other reasons → Option C becomes attractive.
 
 ## Action Items
-1. [ ] Threat-model delta: state the **honest-majority (`n ≥ 2t+1`)** premise, what GOD adds
+1. [x] Threat-model delta: state the **honest-majority (`n ≥ 2t+1`)** premise, what GOD adds
        (liveness under active minority sabotage; no coordinator SPOF) and what it does not
        (nothing against a dishonest majority); record it in `SECURITY.md`.
-2. [ ] Ship **Option D first**: cheater-identification + exclude-and-retry on top of the
+2. [x] Ship **Option D first**: cheater-identification + exclude-and-retry on top of the
        ADR-0002 round (reuse ledger attribution + signed survivor-set), with a bounded retry
        count; tests for "one cheater → round still completes among the honest set".
-3. [ ] Implement **robust reconstruction** (verify shares against Feldman commitments, discard
+3. [x] Implement **robust reconstruction** (verify shares against Feldman commitments, discard
        invalid, Lagrange-interpolate from `t+1`); pure-Python core + tests (≤`t` bad/silent
        shares → correct sum; `> t` → safe abort).
-4. [ ] Build the **shared-input aggregation** path: parties VSS-share DP-noised, bounded-norm-
+4. [~] Build the **shared-input aggregation** path: parties VSS-share DP-noised, bounded-norm-
        proven updates; shares added locally; sum robustly reconstructed by any honest quorum
-       (no coordinator). Compose the bounded-norm ZK gate on the shared inputs.
-5. [ ] Decentralised **agreement on the valid-share set** anchored on the signed survivor-set +
+       (no coordinator) **— done v0.27.0**. Composing the bounded-norm ZK gate on the shared
+       inputs (a cross-commitment equality proof) is the remaining sub-item.
+5. [x] Decentralised **agreement on the valid-share set** anchored on the signed survivor-set +
        ledger; one signed `D4` per round (aggregate only), recording the GOD mode + honest-
        majority parameters.
-6. [ ] `run_consortium_round` mode selection: security-with-abort (ADR-0002, default) vs GOD
+6. [x] `run_consortium_round` mode selection: security-with-abort (ADR-0002, default) vs GOD
        (Option A) vs interim retry (Option D); document the trust/cost trade-off per mode.
-7. [ ] Cross-check the GOD aggregate equals the masking-round aggregate (and plaintext FedAvg)
+7. [x] Cross-check the GOD aggregate equals the masking-round aggregate (and plaintext FedAvg)
        within tolerance; benchmark the `O(n·d)` sharing cost for 3–20 parties.
 8. [ ] Defer to follow-up ADRs: general GOD-MPC (Option B) for non-linear aggregates and
        verifiable threshold HE (Option C).
