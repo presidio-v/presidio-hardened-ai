@@ -41,6 +41,7 @@ from presidio_ai.fl import (
     FedAvgAggregator,
     FederatedClient,
     SecureSumAggregator,
+    charge_federated,
     federated_train,
 )
 from presidio_ai.ingest import ingest_records
@@ -350,6 +351,28 @@ def fl_train(
     learning_rate: float = typer.Option(0.1, "--lr", help="Learning rate."),
     seed: int = typer.Option(0, "--seed", help="RNG seed (deterministic)."),
     secure_agg: bool = typer.Option(False, "--secure-agg", help="Use secure-sum aggregation."),
+    charge: bool = typer.Option(
+        False, "--charge", help="Charge each silo a per-silo epsilon budget."
+    ),
+    total_epsilon: float = typer.Option(
+        0.0, "--total-epsilon", help="Per-silo epsilon budget (with --charge)."
+    ),
+    ledger_dir: str | None = typer.Option(
+        None, "--ledger-dir", help="Directory for per-silo ledgers (with --charge)."
+    ),
+    key: str | None = typer.Option(
+        None, "--key", help=f"Ledger key (or ${_KEY_ENV}); also HMAC signing key."
+    ),
+    evidence_dir: str | None = typer.Option(
+        None, "--evidence-dir", help="Directory for per-silo D4 evidence."
+    ),
+    algorithm: str = typer.Option(
+        "ed25519", "--algorithm", help="Evidence signing: ed25519 | hmac-sha256."
+    ),
+    signing_key: str | None = typer.Option(
+        None, "--signing-key", help="Ed25519 private key hex (for evidence)."
+    ),
+    signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Train across silos (FedAvg). Raw data stays per-silo; only DP updates are shared.
@@ -394,9 +417,30 @@ def fl_train(
         result = federated_train(
             clients, rounds=rounds, local_config=config, seed=seed, aggregator=aggregator
         )
-    except (ValidationError, ValueError) as exc:
+        governance = None
+        if charge:
+            if total_epsilon <= 0 or not ledger_dir:
+                raise ValidationError("--charge requires --total-epsilon > 0 and --ledger-dir")
+            resolved_key = _resolve_key(key)
+            sign_key = signing_key
+            if algorithm == "ed25519" and evidence_dir is not None and not sign_key:
+                raise ValidationError("--algorithm ed25519 needs --signing-key for --evidence-dir")
+            governance = charge_federated(
+                result,
+                total_epsilon=total_epsilon,
+                ledger_dir=ledger_dir,
+                key=resolved_key,
+                evidence_dir=evidence_dir,
+                signer=signer,
+                algorithm=algorithm,
+                signing_key=sign_key,
+            )
+    except (ValidationError, ValueError, LedgerError) as exc:
         _err(f"error: {exc}")
         raise typer.Exit(1) from exc
+    except BudgetExceeded as exc:
+        _err(f"BUDGET EXCEEDED: {exc}")
+        raise typer.Exit(2) from exc
 
     log_security_event(
         {
@@ -405,17 +449,25 @@ def fl_train(
             "rounds": rounds,
             "pooled_accuracy": result.pooled_accuracy,
             "secure_agg": secure_agg,
+            "charged": charge,
         }
     )
+    per_client = {
+        cid: {"epsilon": r.epsilon, "delta": r.delta, "steps": r.steps}
+        for cid, r in result.per_client_epsilon.items()
+    }
+    if governance is not None:
+        for cid, g in governance.items():
+            per_client[cid]["remaining_epsilon"] = g.charge.remaining_epsilon
+            per_client[cid]["ledger_seq"] = g.charge.ledger_seq
+            per_client[cid]["evidence"] = str(g.evidence_path) if g.evidence_path else None
     summary = {
         "rounds": result.rounds,
         "n_silos": len(clients),
         "pooled_accuracy": result.pooled_accuracy,
         "secure_agg": secure_agg,
-        "per_client": {
-            cid: {"epsilon": r.epsilon, "delta": r.delta, "steps": r.steps}
-            for cid, r in result.per_client_epsilon.items()
-        },
+        "charged": charge,
+        "per_client": per_client,
     }
     if quiet:
         typer.echo(json.dumps(summary))
