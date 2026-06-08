@@ -49,6 +49,14 @@ import random
 import secrets
 from collections.abc import Hashable, Mapping, Sequence
 
+from presidio_ai.fl.commit import (
+    CommitmentError,
+    SchnorrGroup,
+    feldman_reconstruct,
+    feldman_split,
+    feldman_verify_share,
+)
+
 # A 61-bit Mersenne prime: the Shamir field. Field elements (and therefore every
 # seed we share) are < 2**61, so products stay well within Python's big ints.
 PRIME = (1 << 61) - 1
@@ -157,7 +165,10 @@ class SecureAggregationSession:
     so a quorum of survivors can recover them, exposes :meth:`mask` for a party
     to mask its (real-valued) vector, and :meth:`aggregate` for the coordinator
     to recover the sum of the *surviving* parties' vectors — and nothing else.
-    Masking is exact in GF(``prime``); see the module docstring.
+    Masking is exact in GF(``prime``); see the module docstring. Pass a
+    :class:`~presidio_ai.fl.commit.SchnorrGroup` as ``group`` for **verifiable mode**:
+    seeds are shared with Feldman VSS so a shareholder rejects an inconsistent share
+    (ADR-0002 malicious-security), and reconstruction fails closed on tampering.
     """
 
     def __init__(
@@ -168,6 +179,7 @@ class SecureAggregationSession:
         *,
         frac_bits: int = DEFAULT_FRAC_BITS,
         prime: int = PRIME,
+        group: SchnorrGroup | None = None,
         rng: random.Random | None = None,
     ) -> None:
         ids = list(party_ids)
@@ -185,25 +197,76 @@ class SecureAggregationSession:
         self.threshold = threshold
         self.frac_bits = frac_bits
         self.prime = prime
+        # Verifiable mode: when a group is given, seeds are Z_q elements shared via Feldman
+        # VSS (commitments let shareholders reject an inconsistent share); otherwise plain
+        # Shamir over GF(prime). The additive masking field is unchanged either way.
+        self.group = group
+        self._src = src
+        self._seed_mod = group.q if group is not None else prime
         # Shamir x-coordinate per party (1-based; 0 is reserved for the secret).
         self._x = {pid: i + 1 for i, pid in enumerate(ids)}
         n = len(ids)
-        # Self seed + its sharing among all n parties.
+        # Self seed + its (verifiable) sharing among all n parties.
         self._self_seed: dict[Hashable, int] = {}
         self._self_shares: dict[Hashable, dict[int, int]] = {}
+        self._self_commit: dict[Hashable, list[int] | None] = {}
         for pid in ids:
-            seed = src.randrange(prime)
+            seed = src.randrange(self._seed_mod)
             self._self_seed[pid] = seed
-            self._self_shares[pid] = shamir_split(seed, threshold, n, prime=prime, rng=src)
-        # Symmetric pairwise seed per unordered pair + its sharing.
+            self._self_shares[pid], self._self_commit[pid] = self._deal(seed)
+        # Symmetric pairwise seed per unordered pair + its (verifiable) sharing.
         self._pair_seed: dict[frozenset, int] = {}
         self._pair_shares: dict[frozenset, dict[int, int]] = {}
+        self._pair_commit: dict[frozenset, list[int] | None] = {}
         for a in range(n):
             for b in range(a + 1, n):
                 key = frozenset((ids[a], ids[b]))
-                seed = src.randrange(prime)
+                seed = src.randrange(self._seed_mod)
                 self._pair_seed[key] = seed
-                self._pair_shares[key] = shamir_split(seed, threshold, n, prime=prime, rng=src)
+                self._pair_shares[key], self._pair_commit[key] = self._deal(seed)
+
+    def _deal(self, seed: int) -> tuple[dict[int, int], list[int] | None]:
+        """Secret-share a seed; return (shares, coefficient commitments | None).
+
+        Verifiable mode uses Feldman VSS (commitments published so a recipient can
+        reject an inconsistent share); plain mode uses Shamir over GF(prime).
+        """
+        n = len(self.party_ids)
+        if self.group is not None:
+            sharing = feldman_split(seed, self.threshold, n, group=self.group, rng=self._src)
+            return sharing.shares, sharing.commitments
+        return shamir_split(seed, self.threshold, n, prime=self.prime, rng=self._src), None
+
+    def _reconstruct_seed(
+        self, shares: dict[int, int], commitments: list[int] | None, quorum: Sequence[int]
+    ) -> int:
+        """Reconstruct a seed from the quorum's shares.
+
+        In verifiable mode every share is checked against the published commitments
+        first; an inconsistent share (malicious dealer or corrupted transit) raises and
+        the round fails closed rather than reconstructing a wrong seed.
+        """
+        sub = {x: shares[x] for x in quorum}
+        if self.group is not None and commitments is not None:
+            for x in quorum:
+                if not feldman_verify_share(x, shares[x], commitments, group=self.group):
+                    raise CommitmentError(
+                        f"inconsistent VSS share at x={x} (malicious dealer or corrupted share)"
+                    )
+            return feldman_reconstruct(sub, group=self.group)
+        return shamir_reconstruct(sub, prime=self.prime)
+
+    def feldman_commitments(self) -> dict[str, object]:
+        """Public Feldman coefficient commitments (verifiable mode), for the ledger."""
+        if self.group is None:
+            raise CommitmentError("commitments are only produced in verifiable (group) mode")
+        sep = "|"
+        return {
+            "self": {str(p): self._self_commit[p] for p in self.party_ids},
+            "pair": {
+                sep.join(sorted(map(str, key))): commit for key, commit in self._pair_commit.items()
+            },
+        }
 
     def _pair_sign(self, p: Hashable, q: Hashable) -> int:
         """+1 if p precedes q in party order, else -1 (antisymmetric mask sign)."""
@@ -218,13 +281,11 @@ class SecureAggregationSession:
         """
         if a == b or a not in self._x or b not in self._x:
             raise KeyError("both parties must be distinct members of the session")
-        if not 0 <= seed < self.prime:
-            raise ValueError("seed must be a field element in [0, prime)")
+        if not 0 <= seed < self._seed_mod:
+            raise ValueError("seed must be in [0, q) (verifiable mode) or [0, prime)")
         key = frozenset((a, b))
         self._pair_seed[key] = seed
-        self._pair_shares[key] = shamir_split(
-            seed, self.threshold, len(self.party_ids), prime=self.prime
-        )
+        self._pair_shares[key], self._pair_commit[key] = self._deal(seed)
 
     def mask_field(self, pid: Hashable, q_vector: Sequence[int]) -> list[int]:
         """Mask an already-quantised (field-element) vector. Exact, no rounding."""
@@ -293,7 +354,7 @@ class SecureAggregationSession:
         # Remove each survivor's self-mask (pairwise masks among survivors already
         # cancelled in the field sum above).
         for p in survivors:
-            seed = shamir_reconstruct({x: self._self_shares[p][x] for x in quorum}, prime=prime)
+            seed = self._reconstruct_seed(self._self_shares[p], self._self_commit[p], quorum)
             self_mask = _field_prg(seed, self.dim, prime)
             for k in range(self.dim):
                 total[k] = (total[k] - self_mask[k]) % prime
@@ -302,8 +363,8 @@ class SecureAggregationSession:
         for d in dropped_set:
             for s in survivors:
                 key = frozenset((s, d))
-                seed = shamir_reconstruct(
-                    {x: self._pair_shares[key][x] for x in quorum}, prime=prime
+                seed = self._reconstruct_seed(
+                    self._pair_shares[key], self._pair_commit[key], quorum
                 )
                 sign = self._pair_sign(s, d)  # the sign survivor s used for pair {s, d}
                 pair_mask = _field_prg(seed, self.dim, prime)

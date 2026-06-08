@@ -146,10 +146,38 @@ threshold — learns only the aggregate, never an individual party's update. Con
   every element is a canonical field element, fail-closed. TLS and bind address are
   deployment configuration.
 
-**Threat model (v1).** Honest-but-curious coordinator + ≤`t` colluding parties.
-Malicious-security (a coordinator or parties that deviate from the protocol) is explicitly
-out of scope; hardening it needs commitments / verifiable secret sharing (the ADR-0001
-revisit trigger).
+**Threat model (v1, ADR-0001).** Honest-but-curious coordinator + ≤`t` colluding parties.
+
+## Malicious-Security Hardening (P4, v0.16.0–v0.18.0, ADR-0002)
+
+ADR-0002 extends the model to a **deviating** coordinator or colluding parties, with
+**security-with-abort**. Three composable, ledger-anchored mechanisms, each closing a named
+attack:
+
+- **Signed survivor-set agreement** (`sign_survivor_set`/`verify_survivor_set`) — before any
+  dropout-recovery share is revealed, the coordinator must present `≥t` party signatures
+  over the **exact** survivor set, recorded on the ledger. Because each signature binds the
+  specific alive-set, a coordinator cannot obtain `t` signatures over two different sets, so
+  it cannot lie about who dropped to **unmask** a live party (the Bonawitz attack). Fail-closed.
+- **Verifiable secret sharing** (Feldman VSS, `fl.commit`) — mask-seed shares carry public
+  `g^{a_i}` coefficient commitments; a shareholder rejects an inconsistent share, so a
+  malicious dealer cannot corrupt reconstruction. Verified during reconstruction in
+  verifiable-mode `SecureAggregationSession`; a bad share aborts the round.
+- **Homomorphically-committed inputs** (Pedersen, `fl.commit`) — each party publishes a
+  Pedersen commitment to its input; the product of commitments is a commitment to the sum,
+  so a party checks the coordinator's returned aggregate and aborts on a **false aggregate**.
+  Commitments are bound to the ledger (as a digest, commitments-only).
+
+The group is a pure-Python prime-order Schnorr group over the RFC 3526 MODP-2048 safe prime
+(no new binary dependency; the modulus' primality is re-verified in tests). Only the
+seed-sharing exponent field moves to `Z_q`; the additive masking stays exact in GF(2⁶¹−1).
+
+**Threat model now.** Confidentiality + **integrity-or-abort** against a malicious
+coordinator (equivocation, false aggregate) and a malicious minority of parties
+(inconsistent shares). **Out of scope** (separate ADRs): input poisoning — a *well-formed
+but adversarial* update needs bounded-norm zero-knowledge proofs (Byzantine robustness, not
+secure aggregation) — and **liveness/DoS**: a cheater can force a clean, attributable abort.
+Guaranteed output delivery and removing the collusion bound `t` are likewise future work.
 
 ## Differential-Privacy Accounting (P2, v0.15.0)
 

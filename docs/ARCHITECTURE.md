@@ -124,7 +124,7 @@ then be sealed with `iga export` / `iga verify-bundle`.
 ## Decisions
 
 - [ADR-0001](adr/0001-multiparty-secure-aggregation.md) — multi-party consortium training via secure aggregation (P4, **Accepted & built**: v0.11.0 core, v0.12.0 exact field arithmetic, v0.13.0 governed rounds, v0.14.0 `[mpc]` key agreement + transport).
-- [ADR-0002](adr/0002-malicious-security-hardening.md) — malicious-security hardening for consortium secure aggregation: commitments + verifiable secret sharing + signed survivor-set consistency (P4, **Proposed**).
+- [ADR-0002](adr/0002-malicious-security-hardening.md) — malicious-security hardening: commitments + verifiable secret sharing + signed survivor-set consistency (P4, **Accepted & built** v0.16.0–v0.18.0; security-with-abort).
 
 ## SDLC
 

@@ -1,12 +1,21 @@
 # ADR-0002: Malicious-security hardening for consortium secure aggregation
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — hardening the secure-aggregation protocol against
 *active protocol deviation*
 **Amends:** [ADR-0001](0001-multiparty-secure-aggregation.md) — extends its threat model
 from honest-but-curious to malicious; does not change the v1 mechanism (additive masking).
+
+> **Implementation status (v0.16.0–v0.18.0).** Accepted; Option A built (security-with-abort). v0.16.0 ships the
+> verifiable primitives in `presidio_ai.fl.commit` — Pedersen commitments (additively
+> homomorphic) and Feldman VSS over the RFC 3526 MODP-2048 safe-prime group (action items
+> 2 & the primitive halves of 4–5). **Refinement to item 3:** only the *seed-sharing*
+> field migrates to `Z_q`; the additive masking stays in GF(2⁶¹−1), so the change is
+> narrower than first feared (the seed is just a larger int fed to the mask PRG). Still to
+> come: wiring VSS into the session (4), the homomorphic aggregate check + signed
+> survivor-set round in the consortium (5, 6), and the `[mpc]`/benchmark work (7).
 
 ## Context
 
@@ -211,24 +220,31 @@ price of cryptographic (not assumed) integrity, and it is contained behind the `
   topology / HE packing (Option C).
 
 ## Action Items
-1. [ ] Threat-model delta doc: enumerate the active-deviation attacks (coordinator survivor-
+1. [x] Threat-model delta doc: enumerate the active-deviation attacks (coordinator survivor-
        set equivocation/unmasking, false aggregate; party inconsistent-share, equivocation),
        map each to the mechanism that closes it, and state the **security-with-abort** bound
        (and what stays out: input poisoning, liveness/DoS, >`t` collusion).
-2. [ ] Choose the commitment/VSS group (Ristretto255 vs a large prime field) and the
+       **Done** — PRESIDIO-REQ v0.16–v0.18 entry + SECURITY.md.
+2. [x] Choose the commitment/VSS group (Ristretto255 vs a large prime field) and the
        dependency (PyNaCl/libsodium vs pure-Python); pin a cross-repo golden vector.
-3. [ ] Raise the secret-sharing field to a DL-hard prime (or run a dedicated VSS field) and
+       **Done v0.16.0** — pure-Python Schnorr group over the RFC 3526 MODP-2048 safe prime
+       (`fl.commit`); no new binary dependency; primality re-verified in tests.
+3. [x] Raise the secret-sharing field to a DL-hard prime (or run a dedicated VSS field) and
        migrate `quantize`/encoding; version-gate and document the breaking change.
-4. [ ] Implement **Feldman VSS** for mask seeds: dealer commitments on the ledger,
-       shareholder-side verification, abort-on-inconsistency. Pure-Python core + tests
-       (including a malicious-dealer inconsistent-share test that must abort).
-5. [ ] Implement **Pedersen-committed inputs** with the homomorphic aggregate check: verify
+       **Done v0.17.0 (refined):** *only* the seed-sharing exponent field moves to `Z_q`;
+       masking stays in GF(2⁶¹−1), so no `quantize` migration was needed.
+4. [x] Implement **Feldman VSS** for mask seeds: dealer commitments on the ledger,
+       shareholder-side verification, abort-on-inconsistency. **Done v0.16.0/v0.17.0**
+       (`fl.commit` + verifiable-mode `SecureAggregationSession`; tampered-share abort tested).
+5. [x] Implement **Pedersen-committed inputs** with the homomorphic aggregate check: verify
        the coordinator's returned Σ against the product of per-party commitments; bind
-       commitments to the ledger. Tests (including a false-aggregate test that must abort).
-6. [ ] Implement the **signed survivor-set consistency round**: `≥t` signatures over one
-       alive-set, relayed and ledger-anchored, gating any share reveal. Test the
-       **equivocation/unmasking attack explicitly** — two alive-sets must force an abort.
+       commitments to the ledger. **Done v0.18.0** (`run_secure_consortium_round`;
+       false-aggregate abort tested).
+6. [x] Implement the **signed survivor-set consistency round**: `≥t` signatures over one
+       alive-set, relayed and ledger-anchored, gating any share reveal. **Done v0.18.0**
+       (`sign_survivor_set`/`verify_survivor_set`; equivocation abort tested explicitly).
 7. [ ] Extend the `[mpc]` lane and `ci-mpc`: integration-test the malicious-secure path;
        **benchmark commitment cost at model dimension** and document the abort (DoS) residual.
+       *(Remaining: production group/transport binding + dimension benchmark.)*
 8. [ ] Defer to follow-up ADRs: bounded-norm **ZK input validation** (poisoning) and
        **guaranteed-output-delivery** MPC.
