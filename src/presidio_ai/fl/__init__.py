@@ -60,6 +60,15 @@ from presidio_ai.fl.transport import (
     decode_submission,
     encode_submission,
 )
+from presidio_ai.fl.zk import (
+    BoundedNormProof,
+    ProofError,
+    RangeProof,
+    prove_bounded,
+    prove_range,
+    verify_bounded,
+    verify_range,
+)
 
 __all__ = [
     "Aggregator",
@@ -99,6 +108,13 @@ __all__ = [
     "feldman_verify_share",
     "feldman_reconstruct",
     "FeldmanSharing",
+    "prove_range",
+    "verify_range",
+    "prove_bounded",
+    "verify_bounded",
+    "RangeProof",
+    "BoundedNormProof",
+    "ProofError",
     "SecureAggregationSession",
     "shamir_split",
     "shamir_reconstruct",

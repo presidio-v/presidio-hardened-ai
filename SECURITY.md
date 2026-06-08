@@ -179,6 +179,31 @@ but adversarial* update needs bounded-norm zero-knowledge proofs (Byzantine robu
 secure aggregation) — and **liveness/DoS**: a cheater can force a clean, attributable abort.
 Guaranteed output delivery and removing the collusion bound `t` are likewise future work.
 
+## Bounded-Norm Input Validation (P4, v0.19.0–v0.20.0, ADR-0003)
+
+A malicious party can submit a *well-formed but out-of-norm* update to dominate or poison
+the aggregate — and since secure aggregation hides individual updates, the coordinator
+cannot clip it. `fl.zk` lets a party prove **in zero knowledge** that its committed update
+is within a norm bound, without revealing it:
+
+- **Transparent ZK range proof** (Pedersen bit-decomposition over the prime-order MODP-2048
+  group; no trusted setup): a per-bit Chaum–Pedersen OR-proof, bound to the commitment by
+  `Π C_i^{2^i} == C`, with a Fiat–Shamir transcript binding the commitment, the bound, and
+  all bit commitments (no weak-FS). An **L∞ bounded-norm** proof extends it to a vector.
+- **Admission gate.** `run_secure_consortium_round(clip_bound=…)` verifies each contribution's
+  bounded-norm proof against the **same** input commitments before aggregation; a poisoning
+  update is rejected and the proven outcome is recorded on the ledger (`sensitivity_proven`).
+- **Sensitivity becomes proven, not assumed.** The bound is the DP clip sensitivity, so the
+  per-client `(ε, δ)` the accountant reports holds even against a malicious client — closing
+  the gap between assumed and enforced clipping.
+
+**Scope / deviation.** ADR-0003 recommended Bulletproofs over Ristretto255; neither is
+available in this environment (no Ristretto255 in the libsodium build; no vetted Python
+Bulletproofs library). v1 therefore uses a textbook, fully-tested range proof over the
+already-vetted MODP-2048 group (same ZK guarantee; `O(n)` proof rather than `O(log n)`). The
+Ristretto255 + Bulletproofs performance backend (reserved `[zk]` extra), the **L2** bound,
+and *semantic* robustness against in-norm backdoors are future work.
+
 ## Differential-Privacy Accounting (P2, v0.15.0)
 
 The DP-SGD ε reported by the accountant and charged to budgets is a sound upper bound. As

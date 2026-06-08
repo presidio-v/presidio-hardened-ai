@@ -194,3 +194,58 @@ def test_secure_round_requires_verifiable_session(tmp_path):
             survivor_threshold=1,
             group=GROUP,
         )
+
+
+# --- bounded-norm input validation gate (ADR-0003, v0.20.0) ---------------
+
+
+def test_secure_round_with_bounded_norm_gate(tmp_path):
+    parties = ["bankA", "bankB", "bankC"]
+    dim = 3
+    skeys = {p: f"k-{p}" for p in parties}
+    updates = _updates(parties, dim)  # values in [0, 1)
+    sess = _vsession(parties, dim)
+    ledger = Ledger(tmp_path / "round.jsonl", key=KEY)
+    res = run_secure_consortium_round(
+        round_id="rb1",
+        updates=updates,
+        dp_results=_dp(parties),
+        session=sess,
+        ledger=ledger,
+        survivor_signatures=_signed_alive(parties, "rb1", skeys),
+        survivor_keys=skeys,
+        survivor_threshold=2,
+        group=GROUP,
+        clip_bound=2.0,
+        rng=random.Random(7),  # noqa: S311 - test fixture
+    )
+    expected = [sum(updates[p][k] for p in parties) for k in range(dim)]
+    assert all(abs(a - e) < 1e-3 for a, e in zip(res.aggregate, expected, strict=True))
+    from presidio_ai.fl.consortium import CONSORTIUM_EVENT
+
+    rnd = [e for e in verify_chain(ledger.path, key=KEY) if e.event == CONSORTIUM_EVENT][0].payload
+    assert rnd["sensitivity_proven"] is True and rnd["clip_bound"] == 2.0
+
+
+def test_secure_round_rejects_poisoning_update(tmp_path):
+    # A party whose update exceeds the clip sensitivity is rejected by the ZK gate.
+    parties = ["bankA", "bankB", "bankC"]
+    dim = 2
+    skeys = {p: f"k-{p}" for p in parties}
+    updates = _updates(parties, dim)
+    updates["bankC"] = [50.0, 0.1]  # boosting / poisoning: way over the clip bound
+    sess = _vsession(parties, dim)
+    with pytest.raises(ConsortiumError, match="bounded-norm"):
+        run_secure_consortium_round(
+            round_id="rb2",
+            updates=updates,
+            dp_results=_dp(parties),
+            session=sess,
+            ledger=Ledger(tmp_path / "r.jsonl", key=KEY),
+            survivor_signatures=_signed_alive(parties, "rb2", skeys),
+            survivor_keys=skeys,
+            survivor_threshold=2,
+            group=GROUP,
+            clip_bound=2.0,
+            rng=random.Random(3),  # noqa: S311 - test fixture
+        )

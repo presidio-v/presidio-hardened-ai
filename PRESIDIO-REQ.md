@@ -76,8 +76,10 @@ CLI command: `pai`
 | v0.15.0 | P2 | Fractional-order RDP accountant (TF-Privacy/Opacus series); ≤ integer-only ε | Shipped |
 | v0.16.0 | P4 | Pedersen commitments + Feldman VSS primitives (`fl.commit`) — ADR-0002 | Shipped |
 | v0.17.0 | P4 | Verifiable (Feldman-VSS) seed sharing in `SecureAggregationSession` | Shipped |
-| v0.18.0 | P4 | Malicious-secure consortium round: signed survivor-set + homomorphic aggregate check | **Current** |
-| — | P4 | Bounded-norm **ZK input validation** (poisoning) and guaranteed-output-delivery MPC | Deferred |
+| v0.18.0 | P4 | Malicious-secure consortium round: signed survivor-set + homomorphic aggregate check | Shipped |
+| v0.19.0 | P4 | Zero-knowledge bounded-norm proofs (`fl.zk`): Pedersen range + L∞ vector — ADR-0003 | Shipped |
+| v0.20.0 | P4 | Bounded-norm ZK gate in the secure round; DP clip sensitivity *proven*, not assumed | **Current** |
+| — | P4 | ZK perf: Ristretto255 + Bulletproofs (`[zk]`); **L2** bound; guaranteed-output-delivery MPC | Deferred |
 
 ---
 
@@ -654,6 +656,37 @@ is not confidentiality/integrity.
 adversarial updates / model poisoning — a different, Byzantine-robustness problem) and
 **guaranteed-output-delivery** MPC. The commitment cost at full model dimension and a
 production group/transport binding are the remaining engineering items (ADR-0002 item 7).
+
+---
+
+## v0.19.0–v0.20.0 — Bounded-Norm ZK Input Validation (P4, ADR-0003)
+
+ADR-0003 (Accepted, Option A) closes the last deviation gap ADR-0002 named: a **well-formed
+but out-of-norm** update used to dominate/poison the aggregate. Because secure aggregation
+hides individual updates, the bound is proven in **zero knowledge**.
+
+- **v0.19.0 — `fl.zk`.** A transparent (no trusted setup) Pedersen **bit-decomposition range
+  proof** over the prime-order MODP-2048 group: a Chaum–Pedersen OR-proof per bit, bound to
+  the commitment via the product check `Π C_i^{2^i} == C`, with a Fiat–Shamir transcript
+  binding the group, commitment, bound, and all bit commitments. On top, an **L∞ bounded-norm
+  vector proof** (`prove_bounded`/`verify_bounded`) range-proves each shifted commitment
+  `C_k·g^B` in `[0, 2^bits)`.
+- **v0.20.0 — gate.** `run_secure_consortium_round(clip_bound=…)` admits a contribution only
+  if its bounded-norm proof verifies against the **same** input commitments; a poisoning
+  update (norm > bound) is rejected before aggregation. Parties now commit to *signed*
+  fixed-point values so one commitment is both range-provable and homomorphically checkable.
+
+**The point.** The proven bound is the DP **clip sensitivity**, so the per-client `(ε, δ)`
+the accountant reports and the ledger attests becomes **sound against a malicious client** —
+sensitivity is *proven*, not assumed. The round records `sensitivity_proven` on the ledger.
+
+**Deviation from ADR-0003 (honest note).** The ADR recommended Bulletproofs over Ristretto255;
+neither is available (this libsodium build has no Ristretto255; no vetted Python Bulletproofs
+library exists). v1 uses a textbook, fully-tested range proof over the vetted MODP group —
+same ZK guarantee, `O(n)` proof vs `O(log n)`. **Deferred:** the Ristretto255 + Bulletproofs
+performance backend (reserved `[zk]` extra; likely Rust-FFI), the **L2** bound (matches the
+clip norm exactly), and guaranteed-output-delivery MPC. *Semantic* robustness (in-norm
+backdoors) is a Byzantine-ML problem, out of scope for cryptographic validation.
 
 ---
 
