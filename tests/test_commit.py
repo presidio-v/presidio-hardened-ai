@@ -147,3 +147,30 @@ def test_feldman_rejects_bad_params():
         feldman_split(1, threshold=4, n_shares=3, group=TEST_GROUP)
     with pytest.raises(CommitmentError):
         feldman_split(TEST_GROUP.q, threshold=2, n_shares=3, group=TEST_GROUP)  # secret >= q
+
+
+# --- robust reconstruction (ADR-0006 GOD) ---------------------------------
+
+from presidio_ai.fl.commit import robust_reconstruct  # noqa: E402
+
+
+def test_robust_reconstruct_tolerates_bad_and_missing_shares():
+    secret = 123456789
+    sharing = feldman_split(secret, threshold=3, n_shares=7, group=TEST_GROUP, rng=_rng(4))
+    shares = dict(sharing.shares)
+    # corrupt two shares (malicious holders) and drop one (silent) -> still >= threshold valid.
+    shares[1] = (shares[1] + 1) % TEST_GROUP.q
+    shares[2] = (shares[2] + 99) % TEST_GROUP.q
+    del shares[7]
+    assert robust_reconstruct(shares, sharing.commitments, threshold=3, group=TEST_GROUP) == secret
+
+
+def test_robust_reconstruct_fails_closed_below_threshold():
+    secret = 42
+    sharing = feldman_split(secret, threshold=4, n_shares=6, group=TEST_GROUP, rng=_rng(5))
+    shares = dict(sharing.shares)
+    # corrupt 3 of 6 -> only 3 valid, below threshold 4.
+    for x in (1, 2, 3):
+        shares[x] = (shares[x] + 7) % TEST_GROUP.q
+    with pytest.raises(CommitmentError, match="cannot reconstruct"):
+        robust_reconstruct(shares, sharing.commitments, threshold=4, group=TEST_GROUP)
