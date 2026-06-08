@@ -50,6 +50,18 @@ patch within 30 days of a confirmed vulnerability.
 - **Restricted file permissions** — the ledger file and `~/.presidio-ai/` are created
   `0600` / `0700`.
 
+
+### Differential-privacy budget (v0.2.0)
+
+- **Privacy parameters are evidence, not PII.** ε, δ, noise multiplier, sampling rate, and
+  step count are recorded to the ledger by design — they are accounting facts required to
+  make the guarantee auditable, and contain no organisational data.
+- **Tamper-evident budget.** The org ε budget is re-derived from the MAC-verified ledger
+  chain; a tampered ledger fails closed (no spend figure is returned). An over-budget
+  charge is rejected and recorded nowhere.
+- **Sound accounting.** Integer-order subsampled-Gaussian RDP (Mironov–Talwar–Zhang 2019)
+  composed over steps, converted via Mironov (2017) — a sound upper bound on ε.
+
 ### Evidence signatures
 
 Exported `EvidenceRef` objects carry a detached HMAC-SHA256 signature over the

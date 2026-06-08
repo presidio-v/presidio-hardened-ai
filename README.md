@@ -74,6 +74,26 @@ iga assess --use-case fraud-scoring --risk-class high \
 
 ---
 
+## Differential-privacy accounting & budget
+
+```bash
+# Account the (epsilon, delta) cost of a planned DP-SGD run.
+pai dp-account --noise-multiplier 1.1 --sample-rate 0.0043 --steps 5000 --delta 1e-5
+#   epsilon = 1.83  (optimal RDP order 12)
+
+# Charge a job against a tamper-evident org epsilon budget, emit D4 evidence.
+pai dp-charge --ledger audit/ledger.jsonl --total-epsilon 10 --job-id fraud-ft \
+    --noise-multiplier 1.1 --sample-rate 0.0043 --steps 5000 \
+    --evidence-out audit/dp-evidence.json
+
+pai dp-budget --ledger audit/ledger.jsonl --total-epsilon 10   # spent / remaining
+```
+
+Accounting uses the integer-order subsampled-Gaussian RDP bound (Mironov–Talwar–Zhang
+2019) with Mironov (2017) RDP→DP conversion. The ε budget is re-derived from the
+verified ledger chain, so spend cannot be understated without breaking the chain. The
+DP-SGD gradient work plugs in behind the optional `[torch]` extra.
+
 ## Library
 
 ```python
@@ -102,8 +122,8 @@ guard; `0600`/`0700` file permissions.
 
 | Phase | Version | Theme |
 |---|---|---|
-| **P1** | **v0.1.0** | **Evidence layer: ledger + PII-scrub + signed EvidenceRef — current** |
-| P2 | v0.2.0 | DP-SGD fine-tune harness + ε-budget accountant (public-base/private-delta) |
+| P1 | v0.1.0 | Evidence layer: ledger + PII-scrub + signed EvidenceRef |
+| **P2** | **v0.2.0** | **ε-budget accountant + DP governance + DP evidence — current** |
 | P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
 | P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
 | P4 | — | Multi-party consortium (SMPC) — pull-only |

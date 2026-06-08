@@ -19,7 +19,8 @@ from pathlib import Path
 import typer
 
 from presidio_ai import __version__
-from presidio_ai.evidence import build_ingest_evidence, export_evidence
+from presidio_ai.dp import BudgetExceeded, EpsilonBudget, dpsgd_epsilon
+from presidio_ai.evidence import build_dp_evidence, build_ingest_evidence, export_evidence
 from presidio_ai.ingest import ingest_records
 from presidio_ai.ledger import Ledger, LedgerError, verify_chain
 from presidio_ai.pii import PIIBlockedError, PIIScrubber
@@ -182,6 +183,137 @@ def _head(entries: list) -> str | None:
 def version() -> None:
     """Print the tool version."""
     typer.echo(__version__)
+
+
+@app.command(name="dp-account")
+def dp_account(
+    noise_multiplier: float = typer.Option(..., "--noise-multiplier", help="Gaussian noise sigma."),
+    sample_rate: float = typer.Option(
+        ..., "--sample-rate", help="Poisson sampling rate q in [0,1]."
+    ),
+    steps: int = typer.Option(..., "--steps", help="Number of DP-SGD steps."),
+    delta: float = typer.Option(1e-5, "--delta", help="Target delta in (0,1)."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Compute the (epsilon, delta) guarantee of a DP-SGD run (no ledger)."""
+    try:
+        result = dpsgd_epsilon(
+            noise_multiplier=noise_multiplier,
+            sample_rate=sample_rate,
+            steps=steps,
+            delta=delta,
+        )
+    except ValueError as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+    if quiet:
+        typer.echo(json.dumps(result.as_dict()))
+    else:
+        typer.echo(f"epsilon = {result.epsilon:.4f}  (delta = {result.delta:g})")
+        typer.echo(f"  optimal RDP order: {result.optimal_order}")
+        typer.echo(
+            f"  sigma={result.noise_multiplier:g} q={result.sample_rate:g} steps={result.steps}"
+        )
+
+
+@app.command(name="dp-charge")
+def dp_charge(
+    ledger_path: Path = typer.Option(..., "--ledger", help="Path to the JSON-L ledger."),
+    total_epsilon: float = typer.Option(..., "--total-epsilon", help="Org epsilon budget."),
+    job_id: str = typer.Option(..., "--job-id", help="Identifier for this training job."),
+    noise_multiplier: float = typer.Option(..., "--noise-multiplier", help="Gaussian noise sigma."),
+    sample_rate: float = typer.Option(..., "--sample-rate", help="Poisson sampling rate q."),
+    steps: int = typer.Option(..., "--steps", help="Number of DP-SGD steps."),
+    delta: float = typer.Option(1e-5, "--delta", help="Budget/guarantee delta."),
+    key: str | None = typer.Option(None, "--key", help=f"Ledger/signing key (or ${_KEY_ENV})."),
+    evidence_out: Path | None = typer.Option(
+        None, "--evidence-out", help="Write D4 EvidenceRef JSON."
+    ),
+    signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Account a DP-SGD job, charge it to the ledger budget, optionally export evidence."""
+    resolved_key = _resolve_key(key)
+    job_id = validate_identifier(job_id, what="job-id")
+    try:
+        ledger = Ledger(ledger_path, key=resolved_key)
+        budget = EpsilonBudget(total_epsilon, delta, ledger)
+        charge = budget.charge_dpsgd(
+            job_id=job_id,
+            noise_multiplier=noise_multiplier,
+            sample_rate=sample_rate,
+            steps=steps,
+        )
+    except BudgetExceeded as exc:
+        _err(f"BUDGET EXCEEDED: {exc}")
+        raise typer.Exit(2) from exc
+    except (ValueError, LedgerError) as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+
+    evidence_payload = None
+    if evidence_out is not None:
+        refs = build_dp_evidence(
+            charge.result, signing_key=resolved_key, signer=signer, charge_seq=charge.ledger_seq
+        )
+        export_evidence(refs, evidence_out, use_case=job_id)
+        evidence_payload = [r.to_dict() for r in refs]
+        _err(f"Evidence ({len(refs)} ref) written to: {evidence_out}")
+
+    log_security_event(
+        {
+            "event": "pai-dp-charge",
+            "epsilon": charge.result.epsilon,
+            "remaining_epsilon": charge.remaining_epsilon,
+            "steps": charge.result.steps,
+            "evidence_exported": evidence_out is not None,
+        }
+    )
+    summary = {
+        "job_id": charge.job_id,
+        "epsilon": charge.result.epsilon,
+        "delta": charge.result.delta,
+        "optimal_order": charge.result.optimal_order,
+        "spent_epsilon": charge.spent_epsilon,
+        "remaining_epsilon": charge.remaining_epsilon,
+        "ledger_seq": charge.ledger_seq,
+        "evidence": evidence_payload,
+    }
+    if quiet:
+        typer.echo(json.dumps(summary))
+    else:
+        typer.echo(f"Charged job '{charge.job_id}': epsilon={charge.result.epsilon:.4f}")
+        typer.echo(
+            f"  spent {charge.spent_epsilon:.4f}/{total_epsilon:.4f} "
+            f"(remaining {charge.remaining_epsilon:.4f})"
+        )
+        typer.echo(f"  ledger seq: {charge.ledger_seq}")
+
+
+@app.command(name="dp-budget")
+def dp_budget(
+    ledger_path: Path = typer.Option(..., "--ledger", help="Path to the JSON-L ledger."),
+    total_epsilon: float = typer.Option(..., "--total-epsilon", help="Org epsilon budget."),
+    delta: float = typer.Option(1e-5, "--delta", help="Budget delta."),
+    key: str | None = typer.Option(None, "--key", help=f"Ledger key (or ${_KEY_ENV})."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Report epsilon spent and remaining, re-derived from the verified ledger."""
+    resolved_key = _resolve_key(key)
+    try:
+        ledger = Ledger(ledger_path, key=resolved_key)
+        budget = EpsilonBudget(total_epsilon, delta, ledger)
+        spent = budget.spent()
+        remaining = budget.remaining()
+    except (ValueError, LedgerError) as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+    if quiet:
+        typer.echo(
+            json.dumps({"total_epsilon": total_epsilon, "spent": spent, "remaining": remaining})
+        )
+    else:
+        typer.echo(f"budget: {spent:.4f} / {total_epsilon:.4f} spent (remaining {remaining:.4f})")
 
 
 def main() -> None:  # pragma: no cover - console-script entry point

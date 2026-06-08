@@ -11,9 +11,16 @@ counts, and structural metadata are recorded, never raw PII or organisational da
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-from presidio_ai.evidence import EvidenceRef, build_ingest_evidence, sign_evidence, verify_evidence
+from presidio_ai.dp import DPResult, DPSGDConfig, EpsilonBudget, dpsgd_epsilon, plan_privacy
+from presidio_ai.evidence import (
+    EvidenceRef,
+    build_dp_evidence,
+    build_ingest_evidence,
+    sign_evidence,
+    verify_evidence,
+)
 from presidio_ai.ingest import IngestResult, ingest_records
 from presidio_ai.ledger import Ledger, LedgerEntry, verify_chain
 from presidio_ai.pii import PIIScrubber, ScrubResult
@@ -29,6 +36,12 @@ __all__ = [
     "ingest_records",
     "EvidenceRef",
     "build_ingest_evidence",
+    "build_dp_evidence",
     "sign_evidence",
     "verify_evidence",
+    "DPResult",
+    "DPSGDConfig",
+    "EpsilonBudget",
+    "dpsgd_epsilon",
+    "plan_privacy",
 ]
