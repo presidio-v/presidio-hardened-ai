@@ -178,6 +178,7 @@ per-silo ε charged to tamper-evident budgets → one signed `D4` the governance
 - [ADR-0002](adr/0002-malicious-security-hardening.md) — malicious-security hardening: commitments + verifiable secret sharing + signed survivor-set consistency (P4, **Accepted & built** v0.16.0–v0.18.0; security-with-abort).
 - [ADR-0003](adr/0003-bounded-norm-input-validation.md) — bounded-norm input validation via zero-knowledge (transparent Pedersen range proofs over the prime-order group; enforces the DP clip sensitivity) (P4, **Accepted & built** v0.19.0–v0.20.0; Ristretto255+Bulletproofs perf backend deferred).
 - [ADR-0004](adr/0004-ristretto-bulletproofs-backend.md) — Ristretto255 + Bulletproofs performance backend: a pluggable `ProofBackend` (audited dalek crates behind `[zk]`, built in `ci-zk`) with the pure-Python MODP proof as a dependency-free fallback; same guarantee (P4, **Accepted & built** v0.21.0–v0.22.0).
+- [ADR-0005](adr/0005-l2-bounded-norm.md) — L2 bounded-norm proofs: commit squares + a square-correctness Σ-proof + range-prove the homomorphic squared-norm, enforcing the *exact* DP clip norm on both backends (P4, **Proposed**).
 
 ## SDLC
 

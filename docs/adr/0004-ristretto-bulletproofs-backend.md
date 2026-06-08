@@ -205,3 +205,5 @@ accept, out-of-bound / tampered → reject), not that they produce the same byte
        path and the automatic fallback when the wheel is unavailable.
 8. [x] Keep the v1 MODP proof as the documented fallback (optionally apply Option D
        multi-exponentiation there); ensure the L2-bound ADR builds on this backend.
+       **L2 scoped in [ADR-0005](0005-l2-bounded-norm.md) (Proposed)** - reuses this
+       backend's range proof for the squared-norm.
