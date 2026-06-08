@@ -1,12 +1,19 @@
 # ADR-0005: L2 bounded-norm proofs (proving the exact DP clip norm)
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — prove a contribution's **L2** norm (not just L∞) is
 within the clip bound, in zero knowledge
 **Amends:** [ADR-0003](0003-bounded-norm-input-validation.md) — the deferred L2 (Option B)
 follow-up; uses the [ADR-0004](0004-ristretto-bulletproofs-backend.md) pluggable backend.
+
+> **Implementation status (v0.23.0–v0.24.0).** Accepted; built (Option A). The square-
+> correctness Σ-protocol + `prove_l2_bounded`/`verify_l2_bounded` ship on the MODP backend
+> (v0.23.0, verified) and the Ristretto native backend (v0.24.0, buildable/CI-validated
+> source); `run_secure_consortium_round(l2_bound=…)` gates on `‖x‖₂ ≤ C` (items 1–5). The
+> L∞ gate remains as a cheaper option; the default-norm policy (item 6) is left to the
+> caller (pass `l2_bound` for the exact norm, `clip_bound` for L∞).
 
 ## Context
 
@@ -160,17 +167,17 @@ of one new, testable Σ-protocol.
 - Aggregating the square proofs across coordinates/parties is needed → extend the backend.
 
 ## Action Items
-1. [ ] Specify the **square-correctness Σ-protocol** (prove `C_y` commits to the square of
+1. [x] Specify the **square-correctness Σ-protocol** (prove `C_y` commits to the square of
        `C_x`'s value) with a Fiat–Shamir transcript binding both commitments + the bound; pin
        a golden vector. Define the fixed-point squared-scale and bound `(C·2^f)²`.
-2. [ ] Add `prove_l2_bounded` / `verify_l2_bounded` to the `ProofBackend` interface; implement
+2. [x] Add `prove_l2_bounded` / `verify_l2_bounded` to the `ProofBackend` interface; implement
        on the **MODP** backend first (pure-Python, fully testable in the default gate).
-3. [ ] Implement the square proof + squared-norm range proof on the **Ristretto255** backend
+3. [x] Implement the square proof + squared-norm range proof on the **Ristretto255** backend
        (native), reusing dalek RangeProof on the homomorphic `S`; cross-validate native vs.
        MODP on **decision equivalence** in `ci-zk`.
-4. [ ] Wire an `l2_bound` option into `run_secure_consortium_round` (gate on `‖x‖₂ ≤ C`);
+4. [x] Wire an `l2_bound` option into `run_secure_consortium_round` (gate on `‖x‖₂ ≤ C`);
        record the enforced norm + bound on the ledger; surface "sensitivity: proven (L2)" in `D4`.
-5. [ ] Tests: square-proof completeness + soundness (wrong square rejected, tamper rejected,
+5. [x] Tests: square-proof completeness + soundness (wrong square rejected, tamper rejected,
        weak-FS rejected); an out-of-L2-norm contribution rejected even when every coordinate is
        within L∞; equivalence MODP↔Ristretto.
 6. [ ] Keep **L∞** as a cheaper option and document **C** (the `C/√d` over-approximation) as a
