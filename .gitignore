@@ -1,0 +1,20 @@
+# Claude local settings
+.claude/settings.local.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Secrets / env
+.env
+*.pem
+*.key
+
+# OS
+.DS_Store
