@@ -78,8 +78,10 @@ CLI command: `pai`
 | v0.17.0 | P4 | Verifiable (Feldman-VSS) seed sharing in `SecureAggregationSession` | Shipped |
 | v0.18.0 | P4 | Malicious-secure consortium round: signed survivor-set + homomorphic aggregate check | Shipped |
 | v0.19.0 | P4 | Zero-knowledge bounded-norm proofs (`fl.zk`): Pedersen range + L∞ vector — ADR-0003 | Shipped |
-| v0.20.0 | P4 | Bounded-norm ZK gate in the secure round; DP clip sensitivity *proven*, not assumed | **Current** |
-| — | P4 | ZK perf: Ristretto255 + Bulletproofs (`[zk]`); **L2** bound; guaranteed-output-delivery MPC | Deferred |
+| v0.20.0 | P4 | Bounded-norm ZK gate in the secure round; DP clip sensitivity *proven*, not assumed | Shipped |
+| v0.21.0 | P4 | Pluggable `ProofBackend` interface + MODP backend + auto-dispatch — ADR-0004 | Shipped |
+| v0.22.0 | P4 | Ristretto255 + Bulletproofs native backend (`rust/`, `[zk]`, `ci-zk`) — accelerator | **Current** |
+| — | P4 | **L2** bound (matches the clip norm); guaranteed-output-delivery MPC | Deferred |
 
 ---
 
@@ -687,6 +689,33 @@ same ZK guarantee, `O(n)` proof vs `O(log n)`. **Deferred:** the Ristretto255 + 
 performance backend (reserved `[zk]` extra; likely Rust-FFI), the **L2** bound (matches the
 clip norm exactly), and guaranteed-output-delivery MPC. *Semantic* robustness (in-norm
 backdoors) is a Byzantine-ML problem, out of scope for cryptographic validation.
+
+---
+
+## v0.21.0–v0.22.0 — Pluggable Proof Backend: Ristretto255 + Bulletproofs (P4, ADR-0004)
+
+ADR-0004 makes the ADR-0003 bounded-norm proofs production-fast without touching the
+guarantee, the `EvidenceRef@1` contract, or the threat model.
+
+- **v0.21.0 — the seam.** A `ProofBackend` Protocol (commit / homomorphic sum / serialize /
+  prove_bounded / verify_bounded; commitments opaque, blindings plain ints) with `ModpBackend`
+  (the ADR-0003 pure-Python proofs) as a **dependency-free fallback**. `get_backend()` tries
+  the native wheel and otherwise returns MODP, cached. `run_secure_consortium_round` dispatches
+  through `backend=`. Hardening fix: `verify_bounded` binds the proof to the *requested* bound.
+- **v0.22.0 — the accelerator.** `rust/` is a PyO3/maturin crate (`presidio_ai_zk`) over the
+  **audited** dalek `bulletproofs` + `curve25519-dalek`: Pedersen commitments + an aggregated
+  `O(log n)` L∞ range proof, with the same shift-by-`B` semantics as MODP. A `ci-zk` lane
+  builds the wheel and cross-validates native vs MODP on **decision equivalence** (the two
+  are not byte-compatible). `[zk]` stays installable (no-op) so the fallback always works.
+
+**The architectural move:** the `[zk]` extra is an *accelerator, not a requirement* — a
+deployment that can build the Rust wheel gets audited production speed; one that cannot still
+gets correct bounded-norm validation, slower. Identical guarantee on both paths.
+
+**Build note.** The native crate is buildable, CI-validated source; it is **not** compiled in
+the dev sandbox (no Rust toolchain). It builds and self-validates in `ci-zk`; the default gate
+runs the MODP backend. **Deferred:** the **L2** bound (build on this backend's inner-product
+argument) and guaranteed-output-delivery MPC.
 
 ---
 

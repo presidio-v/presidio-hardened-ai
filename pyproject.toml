@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "presidio-hardened-ai"
-version = "0.20.0"
+version = "0.22.0"
 description = "Training-time privacy for AI: tamper-evident PII-scrub + data-lineage ledger that emits signed governance evidence for the presidio-hardened-* suite."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,9 +34,10 @@ nlp = ["presidio-analyzer>=2.2", "spacy>=3.7"]
 torch = ["opacus>=1.4", "torch>=2.0"]
 crypto = ["cryptography>=42"]
 mpc = ["cryptography>=42", "uvicorn>=0.30", "starlette>=0.37"]
-# [zk] is reserved for the production ZK backend (a Ristretto255 group + Bulletproofs,
-# e.g. via a Rust-FFI dependency). The v1 bounded-norm proofs (fl.zk) are pure-Python
-# over the existing MODP group and need no extra; this keeps `pip install ...[zk]` valid.
+# [zk] activates the audited Ristretto255 + Bulletproofs backend (ADR-0004), built from
+# rust/ via maturin (`maturin build -m rust/Cargo.toml`) -> the `presidio_ai_zk` wheel.
+# It is a drop-in accelerator: absent it, get_backend() falls back to the pure-Python MODP
+# proofs, so this extra stays installable (no-op) and `pip install ...[zk]` always works.
 zk = []
 dev = [
     "pytest>=8.0",

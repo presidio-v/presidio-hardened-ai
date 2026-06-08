@@ -31,6 +31,7 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from presidio_ai.dp.accountant import DPResult
 from presidio_ai.dp.authorization import MPAPolicy, authorize, requires_authorization
@@ -40,15 +41,9 @@ from presidio_ai.evidence import (
     consortium_commitment,
     export_evidence,
 )
-from presidio_ai.fl.commit import (
-    MODP2048_GROUP,
-    SchnorrGroup,
-    pedersen_commit,
-    pedersen_sum,
-    random_scalar,
-)
+from presidio_ai.fl.proof_backend import ProofBackend, get_backend
 from presidio_ai.fl.secure_agg import PRIME, SecureAggregationSession, dequantize
-from presidio_ai.fl.zk import ProofError, prove_bounded, verify_bounded
+from presidio_ai.fl.zk import ProofError
 from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ledger import Ledger
 
@@ -252,23 +247,23 @@ def verify_survivor_set(
 
 
 def commit_quantized(
-    q_vector: Sequence[int], *, group: SchnorrGroup, rng=None
-) -> tuple[list[int], list[int]]:
-    """Per-coordinate Pedersen commitments to a quantised vector; return (commits, randomness)."""
-    randomness = [
-        (1 + rng.randrange(group.q - 1)) if rng is not None else random_scalar(group)
-        for _ in q_vector
-    ]
-    commits = [pedersen_commit(v, r, group) for v, r in zip(q_vector, randomness, strict=True)]
+    q_vector: Sequence[int], *, backend: ProofBackend, rng=None
+) -> tuple[list, list[int]]:
+    """Per-coordinate Pedersen commitments to a vector; return (commits, randomness).
+
+    Commitments are opaque backend objects (int for MODP, point bytes for Ristretto).
+    """
+    randomness = [backend.random_blinding() for _ in q_vector]
+    commits = [backend.commit(v, r) for v, r in zip(q_vector, randomness, strict=True)]
     return commits, randomness
 
 
 def verify_aggregate_commitment(
     aggregate_field: Sequence[int],
-    party_commits: Mapping[Hashable, Sequence[int]],
+    party_commits: Mapping[Hashable, Sequence[Any]],
     party_randomness: Mapping[Hashable, Sequence[int]],
     *,
-    group: SchnorrGroup,
+    backend: ProofBackend,
     prime: int = PRIME,
 ) -> bool:
     """Check the aggregate against the homomorphic sum of per-party input commitments.
@@ -281,12 +276,12 @@ def verify_aggregate_commitment(
     """
     dim = len(aggregate_field)
     for k in range(dim):
-        product = pedersen_sum([party_commits[p][k] for p in party_commits], group)
+        product = backend.sum([party_commits[p][k] for p in party_commits])
         r_sum = sum(party_randomness[p][k] for p in party_randomness)
         centered = (
             aggregate_field[k] - prime if aggregate_field[k] > prime // 2 else aggregate_field[k]
         )
-        if product != pedersen_commit(centered, r_sum, group):
+        if product != backend.commit(centered, r_sum):
             return False
     return True
 
@@ -316,7 +311,7 @@ def run_secure_consortium_round(
     survivor_signatures: Mapping[str, str],
     survivor_keys: Mapping[str, str],
     survivor_threshold: int,
-    group: SchnorrGroup = MODP2048_GROUP,
+    backend: ProofBackend | None = None,
     budgets: Mapping[Hashable, EpsilonBudget] | None = None,
     policy: MPAPolicy | None = None,
     approvals: Mapping[str, str] | None = None,
@@ -347,6 +342,7 @@ def run_secure_consortium_round(
         raise ConsortiumError("run_secure_consortium_round requires a verifiable-mode session")
     if not round_id:
         raise ConsortiumError("round_id must be non-empty")
+    backend = backend if backend is not None else get_backend()
     survivors = [p for p in session.party_ids if p in updates]
     if not survivors:
         raise ConsortiumError("no surviving updates to aggregate")
@@ -381,10 +377,12 @@ def run_secure_consortium_round(
     # signed so the same commitment is range-provable and the homomorphic check composes).
     scale = 1 << session.frac_bits
     s_updates = {s: [round(v * scale) for v in updates[s]] for s in survivors}
-    party_commits: dict[Hashable, list[int]] = {}
+    party_commits: dict[Hashable, list[Any]] = {}
     party_randomness: dict[Hashable, list[int]] = {}
     for s in survivors:
-        party_commits[s], party_randomness[s] = commit_quantized(s_updates[s], group=group, rng=rng)
+        party_commits[s], party_randomness[s] = commit_quantized(
+            s_updates[s], backend=backend, rng=rng
+        )
 
     # 2b. Bounded-norm gate (ADR-0003): each input is ZK-proven within the clip sensitivity,
     # against the *same* commitments, so a poisoning (out-of-norm) contribution is rejected.
@@ -395,14 +393,14 @@ def run_secure_consortium_round(
         bound_fp = round(clip_bound * scale)
         for sid in survivors:
             try:
-                norm_proof = prove_bounded(
-                    s_updates[sid], party_randomness[sid], bound=bound_fp, group=group, rng=rng
+                norm_proof = backend.prove_bounded(
+                    s_updates[sid], party_randomness[sid], bound=bound_fp, rng=rng
                 )
             except ProofError as exc:
                 raise ConsortiumError(
                     f"input failed bounded-norm for '{sid}' (norm > clip sensitivity): {exc}"
                 ) from exc
-            if not verify_bounded(party_commits[sid], norm_proof, group=group):
+            if not backend.verify_bounded(party_commits[sid], norm_proof, bound=bound_fp):
                 raise ConsortiumError(f"bounded-norm proof did not verify for '{sid}'")
         sensitivity_proven = True
 
@@ -412,7 +410,7 @@ def run_secure_consortium_round(
 
     # 4. Homomorphic aggregate check (defeats a false aggregate). Abort before side effects.
     if not verify_aggregate_commitment(
-        agg_field, party_commits, party_randomness, group=group, prime=session.prime
+        agg_field, party_commits, party_randomness, backend=backend, prime=session.prime
     ):
         raise ConsortiumError(
             f"aggregate does not match committed inputs for round '{round_id}' (false aggregate)"
@@ -460,7 +458,15 @@ def run_secure_consortium_round(
         n_parties=len(session.party_ids),
         n_survivors=len(survivors),
     )
-    commit_digest = sha256_hex({"commits": {str(s): party_commits[s] for s in survivors}})
+    commit_digest = sha256_hex(
+        {
+            "backend": backend.name,
+            "commits": {
+                str(s): [backend.serialize_commitment(c) for c in party_commits[s]]
+                for s in survivors
+            },
+        }
+    )
     entry = ledger.append(
         CONSORTIUM_EVENT,
         {

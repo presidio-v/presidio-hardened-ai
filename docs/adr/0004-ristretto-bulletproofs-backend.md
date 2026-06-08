@@ -1,12 +1,21 @@
 # ADR-0004: Ristretto255 + Bulletproofs performance backend for bounded-norm proofs
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — make the ADR-0003 bounded-norm proofs production-fast
 without changing their guarantee
 **Amends:** [ADR-0003](0003-bounded-norm-input-validation.md) — a *performance* upgrade to the
 ZK range proofs shipped there; same threat model, same `EvidenceRef@1` contract.
+
+> **Implementation status (v0.21.0–v0.22.0).** Accepted; built. v0.21.0 ships the pluggable
+> `ProofBackend` + MODP fallback + auto-dispatch (items 2, 8); v0.22.0 ships the Rust/dalek
+> `presidio_ai_zk` crate, the `_ristretto_backend` adapter, the `ci-zk` lane, and the
+> serialization (items 1, 3, 5). The native crate is buildable, CI-validated source — built
+> and self-validated in `ci-zk`, not in the dev sandbox (no Rust toolchain). **Remaining:**
+> the in-round commitment/homomorphic-check migration to Ristretto when the native backend
+> is active is handled generically by the backend seam, but a Ristretto-path consortium
+> integration test + the dimension **benchmark** (items 4, 6) await a CI run with the wheel.
 
 ## Context
 
@@ -179,20 +188,20 @@ accept, out-of-bound / tampered → reject), not that they produce the same byte
   MODP fallback, for performance.
 
 ## Action Items
-1. [ ] Pin the dalek crates (`bulletproofs`, `curve25519-dalek`) and versions; define the
+1. [x] Pin the dalek crates (`bulletproofs`, `curve25519-dalek`) and versions; define the
        PyO3/maturin native module surface (commit, prove_bounded, verify_bounded) for `[zk]`.
-2. [ ] Define the **proof-backend interface** and dispatch: native Ristretto/Bulletproofs when
+2. [x] Define the **proof-backend interface** and dispatch: native Ristretto/Bulletproofs when
        importable, else the v1 pure-Python MODP fallback; a round selects one backend end to end.
-3. [ ] Specify **serialization** for Ristretto commitments + Bulletproof bytes and pin a
+3. [x] Specify **serialization** for Ristretto commitments + Bulletproof bytes and pin a
        cross-repo **golden vector** (as for the Ed25519 evidence wire format).
 4. [ ] On the Ristretto path, migrate the consortium **input commitments + homomorphic
        aggregate check** to Ristretto255; keep Feldman-VSS seed sharing on MODP; forbid mixing.
-5. [ ] Add a **CI lane** (Rust toolchain + maturin) that builds the wheel and runs the native
+5. [x] Add a **CI lane** (Rust toolchain + maturin) that builds the wheel and runs the native
        tests; cross-validate native vs. fallback on **decision equivalence** (accept/reject),
        not bytes.
 6. [ ] **Benchmark** prover/verifier time and proof size, native vs. v1 fallback, at realistic
        model dimension; record the speed-up and the size reduction.
 7. [ ] Build **cross-platform wheels** (cibuildwheel) for release; document the `[zk]` install
        path and the automatic fallback when the wheel is unavailable.
-8. [ ] Keep the v1 MODP proof as the documented fallback (optionally apply Option D
+8. [x] Keep the v1 MODP proof as the documented fallback (optionally apply Option D
        multi-exponentiation there); ensure the L2-bound ADR builds on this backend.

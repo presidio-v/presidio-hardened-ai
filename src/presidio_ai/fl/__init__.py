@@ -47,6 +47,12 @@ from presidio_ai.fl.keyagreement import (
     sign_dh_public_key,
     verify_dh_public_key,
 )
+from presidio_ai.fl.proof_backend import (
+    ModpBackend,
+    ProofBackend,
+    backend_name,
+    get_backend,
+)
 from presidio_ai.fl.secure_agg import (
     SecureAggregationSession,
     dequantize,
@@ -115,6 +121,10 @@ __all__ = [
     "RangeProof",
     "BoundedNormProof",
     "ProofError",
+    "ProofBackend",
+    "ModpBackend",
+    "get_backend",
+    "backend_name",
     "SecureAggregationSession",
     "shamir_split",
     "shamir_reconstruct",
