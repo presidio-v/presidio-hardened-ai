@@ -18,3 +18,12 @@ dist/
 
 # OS
 .DS_Store
+
+# presidio-hardened-ai: never commit ledgers, evidence, or coverage data
+*.jsonl
+audit/
+.presidio-ai/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

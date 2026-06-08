@@ -1,60 +1,122 @@
 # presidio-hardened-ai
 
-A hardened security layer for AI / LLM client integrations, part of the PRESIDIO
-hardened toolkit (`presidio-v`). Adopt it with minimal code changes and get strong
-Presidio security defaults — secret redaction, prompt-injection guards, output
-filtering, rate limiting, and structured security event logging — automatically.
+> v0.1.0 — **Evidence layer (P1):** tamper-evident privacy ledger, PII-scrub on
+> ingest, and signed `EvidenceRef` export for the IKI-Gov governance spine.
 
-> **Version 0.1.0** — MIT License. Initial scaffold; the security target and
-> wrapped surface are being scoped (see [PRESIDIO-REQ.md](PRESIDIO-REQ.md)).
+Training-time privacy controls for AI. Where the rest of the toolkit governs
+*payments* (`presidio-hardened-x402`) and *assessment* (`presidio-hardened-ikigov-assess`),
+this package governs the **training job**: it scrubs PII on the way in, records an
+immutable, auditor-verifiable lineage, and emits cryptographically signed evidence
+that a governance assessment can verify rather than take on trust.
 
-## Status
+Part of the [`presidio-hardened-*`](https://github.com/presidio-v) toolkit family.
 
-This repository was seeded from the `presidio-templates` scaffold. The concrete
-target (which AI/LLM SDK or surface is wrapped) and the v0.1.0 feature set are
-under active scoping — full detail and rationale live in
-[PRESIDIO-REQ.md](PRESIDIO-REQ.md).
+**Design invariant — the ledger holds commitments, never content.** Only hashes,
+counts, and structural metadata are recorded; raw PII and organisational data never
+enter the ledger, the evidence file, or the security log.
 
-## Mandatory Presidio Security Extensions (planned)
+---
 
-- Secret/credential redaction at the logging sink
-- Prompt-injection and unsafe-output guards
-- Strict TLS and certificate validation for all outbound calls
-- Per-client rate limiting with backoff
-- On-startup CVE / dependency quick-check (`pip-audit`)
-- Structured security event logging ("Presidio hardening applied to ...")
+## Why
 
-## Roadmap
+A governance maturity tool scores from human self-attestation — someone ticks a box.
+`presidio-hardened-ai` converts the *technical-control* subset of those boxes into
+**signed evidence**: an assessor (or an agent) can verify the claim against this
+producer's ledger. That is the suite's differentiator — a machine-verifiable
+conformity trail instead of a questionnaire.
 
-| Version | Scope | Status |
+P1 signs evidence for the items it can substantiate with high confidence:
+
+| IKI-Gov item | What it attests | Basis |
 |---|---|---|
-| v0.1.0 | Initial scaffold; target scoping; hardened client skeleton | In progress |
+| **D1** | Data inventory & end-to-end lineage | ingest source + content commitments |
+| **D4** | DPIA inputs | PII-scrub record (per-entity redaction counts) |
+| **O5** | Immutable, auditor-verifiable audit log | HMAC-chained ledger head |
 
-Full roadmap detail and version deliberation: [PRESIDIO-REQ.md](PRESIDIO-REQ.md).
+These map to EU AI Act **Art. 10** (data governance) and **Art. 12** (record-keeping).
+The `EvidenceRef` schema matches `presidio-hardened-ikigov-assess` v0.13.0 verbatim —
+it is the cross-repo contract.
 
-## Install
+---
+
+## Installation
 
 ```bash
-pip install presidio-hardened-ai   # not yet published
+pip install presidio-hardened-ai
+
+# Full NLP-based PII detection (PERSON, LOCATION, ...):
+pip install "presidio-hardened-ai[nlp]"
+python -m spacy download en_core_web_sm
 ```
 
-## Development
+---
+
+## Quick start
 
 ```bash
-uv venv && uv pip install -e ".[dev]"
-.venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
-.venv/bin/python -m pytest tests/ -x -q
+export PRESIDIO_AI_LEDGER_KEY="$(openssl rand -hex 32)"
+
+# Scrub a source, record lineage, and export signed D1/D4/O5 evidence.
+pai ingest --source crm-export --input data.jsonl \
+    --ledger audit/ledger.jsonl --out scrubbed.jsonl \
+    --evidence-out audit/evidence.json --use-case fraud-scoring
+
+# Verify the ledger chain (any tamper breaks it).
+pai verify --ledger audit/ledger.jsonl
 ```
+
+The exported `evidence.json` is consumed directly by the governance spine:
+
+```bash
+iga assess --use-case fraud-scoring --risk-class high \
+    --affirm S1,S2,S3 --evidence audit/evidence.json   # ikigov v0.13.0
+```
+
+---
+
+## Library
+
+```python
+from presidio_ai import Ledger, PIIScrubber, ingest_records, build_ingest_evidence, export_evidence
+
+ledger = Ledger("audit/ledger.jsonl", key="…")
+result = ingest_records(records, source_id="crm-export", ledger=ledger,
+                        scrubber=PIIScrubber(action="redact"))
+
+refs = build_ingest_evidence(result, ledger=ledger, signing_key="…", signer="prod")
+export_evidence(refs, "audit/evidence.json", use_case="fraud-scoring")
+```
+
+---
 
 ## Security
 
-Vulnerability reporting and the security feature matrix: [SECURITY.md](SECURITY.md).
+See [SECURITY.md](SECURITY.md). Controls in P1: keyed (HMAC-SHA256) tamper-evident
+ledger; commitments-only persistence; strict input validation + output escaping;
+structural-only security log at `~/.presidio-ai/security.log`; per-session abuse
+guard; `0600`/`0700` file permissions.
 
-## SDLC
+---
 
-This repository is developed under the Presidio hardened-family SDLC:
-<https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/sdlc-report.md>.
+## Roadmap
+
+| Phase | Version | Theme |
+|---|---|---|
+| **P1** | **v0.1.0** | **Evidence layer: ledger + PII-scrub + signed EvidenceRef — current** |
+| P2 | v0.2.0 | DP-SGD fine-tune harness + ε-budget accountant (public-base/private-delta) |
+| P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
+| P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
+| P4 | — | Multi-party consortium (SMPC) — pull-only |
+
+See [PRESIDIO-REQ.md](PRESIDIO-REQ.md) for the full deliberation log.
+
+---
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## SDLC
+
+Developed under the Presidio hardened-family SDLC:
+<https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/sdlc-report.md>.
