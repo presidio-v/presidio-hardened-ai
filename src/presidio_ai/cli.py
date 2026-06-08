@@ -21,11 +21,13 @@ import typer
 from presidio_ai import __version__
 from presidio_ai.dp import (
     BudgetExceeded,
+    DPSGDConfig,
     EpsilonBudget,
     MPADenied,
     MPAPolicy,
     build_request,
     dpsgd_epsilon,
+    make_trainer,
     request_hash,
     sign_approval,
 )
@@ -186,6 +188,109 @@ def verify(
 
 def _head(entries: list) -> str | None:
     return entries[-1].entry_hash if entries else None
+
+
+@app.command(name="dp-train")
+def dp_train(
+    input: Path = typer.Option(..., "--input", "-i", help='JSONL of {"x": [floats], "y": 0|1}.'),
+    ledger_path: Path = typer.Option(..., "--ledger", help="Path to the JSON-L ledger."),
+    total_epsilon: float = typer.Option(..., "--total-epsilon", help="Org epsilon budget."),
+    job_id: str = typer.Option(..., "--job-id", help="Identifier for this training job."),
+    noise_multiplier: float = typer.Option(..., "--noise-multiplier", help="Gaussian noise sigma."),
+    sample_rate: float = typer.Option(..., "--sample-rate", help="Poisson sampling rate q."),
+    steps: int = typer.Option(..., "--steps", help="DP-SGD steps."),
+    delta: float = typer.Option(1e-5, "--delta", help="Budget/guarantee delta."),
+    clip_norm: float = typer.Option(1.0, "--clip-norm", help="Per-example L2 gradient clip."),
+    learning_rate: float = typer.Option(0.1, "--lr", help="Learning rate."),
+    seed: int = typer.Option(0, "--seed", help="RNG seed (deterministic)."),
+    key: str | None = typer.Option(None, "--key", help=f"Ledger/signing key (or ${_KEY_ENV})."),
+    evidence_out: Path | None = typer.Option(
+        None, "--evidence-out", help="Write D4 EvidenceRef JSON."
+    ),
+    signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Train a DP-SGD logistic model, charge the budget, optionally export evidence.
+
+    Runs the dependency-free reference DP-SGD trainer (per-example clipping + Gaussian
+    noise), so the (epsilon, delta) charged is the guarantee of a real private run.
+    """
+    resolved_key = _resolve_key(key)
+    job_id = validate_identifier(job_id, what="job-id")
+    try:
+        validate_path(str(input))
+        if not input.exists():
+            _err(f"error: input not found: {input}")
+            raise typer.Exit(1)
+        features: list[list[float]] = []
+        labels: list[int] = []
+        for n, record in enumerate(_read_jsonl(input), 1):
+            if not isinstance(record, dict) or "x" not in record or "y" not in record:
+                raise ValidationError(f"line {n}: each record needs 'x' (list) and 'y' (0/1)")
+            x, y = record["x"], record["y"]
+            if not isinstance(x, list) or not all(isinstance(v, (int, float)) for v in x):
+                raise ValidationError(f"line {n}: 'x' must be a list of numbers")
+            if y not in (0, 1):
+                raise ValidationError(f"line {n}: 'y' must be 0 or 1")
+            features.append([float(v) for v in x])
+            labels.append(int(y))
+        if not features:
+            raise ValidationError("no training records found")
+
+        config = DPSGDConfig(
+            noise_multiplier=noise_multiplier,
+            sample_rate=sample_rate,
+            steps=steps,
+            delta=delta,
+            clip_norm=clip_norm,
+            learning_rate=learning_rate,
+        )
+        model = make_trainer("reference").train(features, labels, config, seed=seed)
+        ledger = Ledger(ledger_path, key=resolved_key)
+        budget = EpsilonBudget(total_epsilon, delta, ledger)
+        charge = budget.charge(model.result, job_id=job_id)
+    except BudgetExceeded as exc:
+        _err(f"BUDGET EXCEEDED: {exc}")
+        raise typer.Exit(2) from exc
+    except (ValidationError, ValueError, LedgerError) as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+
+    evidence_payload = None
+    if evidence_out is not None:
+        refs = build_dp_evidence(
+            charge.result, signing_key=resolved_key, signer=signer, charge_seq=charge.ledger_seq
+        )
+        export_evidence(refs, evidence_out, use_case=job_id)
+        evidence_payload = [r.to_dict() for r in refs]
+        _err(f"Evidence ({len(refs)} ref) written to: {evidence_out}")
+
+    log_security_event(
+        {
+            "event": "pai-dp-train",
+            "n_records": len(features),
+            "epsilon": charge.result.epsilon,
+            "accuracy": model.accuracy,
+            "remaining_epsilon": charge.remaining_epsilon,
+        }
+    )
+    summary = {
+        "job_id": charge.job_id,
+        "epsilon": charge.result.epsilon,
+        "delta": charge.result.delta,
+        "accuracy": model.accuracy,
+        "n_records": len(features),
+        "n_features": model.n_features,
+        "remaining_epsilon": charge.remaining_epsilon,
+        "ledger_seq": charge.ledger_seq,
+        "evidence": evidence_payload,
+    }
+    if quiet:
+        typer.echo(json.dumps(summary))
+    else:
+        typer.echo(f"Trained '{charge.job_id}': accuracy={model.accuracy:.3f}")
+        typer.echo(f"  epsilon={charge.result.epsilon:.4f}  ledger seq {charge.ledger_seq}")
+        typer.echo(f"  remaining {charge.remaining_epsilon:.4f}/{total_epsilon:.4f}")
 
 
 @app.command()
