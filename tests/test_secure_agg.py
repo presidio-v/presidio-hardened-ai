@@ -194,3 +194,68 @@ def test_session_rejects_bad_construction():
         SecureAggregationSession(["a", "b"], dim=2, threshold=3)
     with pytest.raises(ValueError):
         SecureAggregationSession(["a", "b"], dim=0, threshold=2)
+
+
+# --- Verifiable mode: Feldman-VSS seed sharing (P4 malicious-security, ADR-0002) ---
+
+from presidio_ai.fl.commit import CommitmentError, SchnorrGroup, hash_to_subgroup  # noqa: E402
+
+_VQ = 30236267232664312970399
+_VGROUP = SchnorrGroup(p=2 * _VQ + 1, q=_VQ, g=4, h=hash_to_subgroup(2 * _VQ + 1, b"sa-test"))
+
+
+def _vsession(n=4, dim=3, threshold=2, seed=7):
+    ids = [f"party-{i}" for i in range(n)]
+    return ids, SecureAggregationSession(
+        ids,
+        dim=dim,
+        threshold=threshold,
+        group=_VGROUP,
+        rng=random.Random(seed),  # noqa: S311 - test fixture data, not security-relevant
+    )
+
+
+def test_verifiable_mode_aggregates_exactly():
+    ids, sess = _vsession()
+    qvecs = {p: [(i + 1) * 100 + k for k in range(sess.dim)] for i, p in enumerate(ids)}
+    masked = {p: sess.mask_field(p, qvecs[p]) for p in ids}
+    recovered = sess.aggregate_field(masked)
+    expected = [sum(qvecs[p][k] for p in ids) % PRIME for k in range(sess.dim)]
+    assert recovered == expected
+
+
+def test_verifiable_mode_dropout_recovers_exactly():
+    ids, sess = _vsession(n=5, dim=3, threshold=3, seed=4)
+    qvecs = {p: [(i + 1) * 11 + k for k in range(sess.dim)] for i, p in enumerate(ids)}
+    survivors = ids[:3]
+    masked = {p: sess.mask_field(p, qvecs[p]) for p in survivors}
+    recovered = sess.aggregate_field(masked)
+    expected = [sum(qvecs[p][k] for p in survivors) % PRIME for k in range(sess.dim)]
+    assert recovered == expected
+
+
+def test_verifiable_mode_aborts_on_tampered_share():
+    ids, sess = _vsession()
+    qvecs = {p: [1, 2, 3] for p in ids}
+    masked = {p: sess.mask_field(p, qvecs[p]) for p in ids}
+    # A malicious/corrupted share for a survivor in the reconstruction quorum.
+    victim = ids[0]
+    x = sess._x[ids[1]]
+    sess._self_shares[victim][x] = (sess._self_shares[victim][x] + 1) % _VGROUP.q
+    with pytest.raises(CommitmentError, match="inconsistent VSS share"):
+        sess.aggregate_field(masked)
+
+
+def test_feldman_commitments_exposed_for_ledger():
+    ids, sess = _vsession(n=3)
+    commits = sess.feldman_commitments()
+    assert set(commits) == {"self", "pair"}
+    assert set(commits["self"]) == set(ids)
+    # threshold-2 sharing -> 2 coefficient commitments per secret.
+    assert all(len(c) == sess.threshold for c in commits["self"].values())
+
+
+def test_feldman_commitments_requires_verifiable_mode():
+    _, sess = _session()  # plain (no group) session
+    with pytest.raises(CommitmentError):
+        sess.feldman_commitments()
