@@ -1,12 +1,21 @@
 # ADR-0002: Malicious-security hardening for consortium secure aggregation
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — hardening the secure-aggregation protocol against
 *active protocol deviation*
 **Amends:** [ADR-0001](0001-multiparty-secure-aggregation.md) — extends its threat model
 from honest-but-curious to malicious; does not change the v1 mechanism (additive masking).
+
+> **Implementation status (v0.16.0+).** Accepted; build in progress. v0.16.0 ships the
+> verifiable primitives in `presidio_ai.fl.commit` — Pedersen commitments (additively
+> homomorphic) and Feldman VSS over the RFC 3526 MODP-2048 safe-prime group (action items
+> 2 & the primitive halves of 4–5). **Refinement to item 3:** only the *seed-sharing*
+> field migrates to `Z_q`; the additive masking stays in GF(2⁶¹−1), so the change is
+> narrower than first feared (the seed is just a larger int fed to the mask PRG). Still to
+> come: wiring VSS into the session (4), the homomorphic aggregate check + signed
+> survivor-set round in the consortium (5, 6), and the `[mpc]`/benchmark work (7).
 
 ## Context
 
@@ -215,8 +224,10 @@ price of cryptographic (not assumed) integrity, and it is contained behind the `
        set equivocation/unmasking, false aggregate; party inconsistent-share, equivocation),
        map each to the mechanism that closes it, and state the **security-with-abort** bound
        (and what stays out: input poisoning, liveness/DoS, >`t` collusion).
-2. [ ] Choose the commitment/VSS group (Ristretto255 vs a large prime field) and the
+2. [x] Choose the commitment/VSS group (Ristretto255 vs a large prime field) and the
        dependency (PyNaCl/libsodium vs pure-Python); pin a cross-repo golden vector.
+       **Done v0.16.0** — pure-Python Schnorr group over the RFC 3526 MODP-2048 safe prime
+       (`fl.commit`); no new binary dependency; primality re-verified in tests.
 3. [ ] Raise the secret-sharing field to a DL-hard prime (or run a dedicated VSS field) and
        migrate `quantize`/encoding; version-gate and document the breaking change.
 4. [ ] Implement **Feldman VSS** for mask seeds: dealer commitments on the ledger,

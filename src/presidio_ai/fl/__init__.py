@@ -10,6 +10,19 @@ server recovers only the *combined* update, not any individual silo's.
 from __future__ import annotations
 
 from presidio_ai.fl.aggregation import Aggregator, FedAvgAggregator, SecureSumAggregator
+from presidio_ai.fl.commit import (
+    MODP2048_GROUP,
+    CommitmentError,
+    FeldmanSharing,
+    SchnorrGroup,
+    feldman_reconstruct,
+    feldman_split,
+    feldman_verify_share,
+    pedersen_add,
+    pedersen_commit,
+    pedersen_sum,
+    pedersen_verify,
+)
 from presidio_ai.fl.consortium import (
     ConsortiumError,
     ConsortiumRoundResult,
@@ -67,6 +80,17 @@ __all__ = [
     "decode_submission",
     "MaskedSubmission",
     "TransportError",
+    "SchnorrGroup",
+    "MODP2048_GROUP",
+    "CommitmentError",
+    "pedersen_commit",
+    "pedersen_verify",
+    "pedersen_add",
+    "pedersen_sum",
+    "feldman_split",
+    "feldman_verify_share",
+    "feldman_reconstruct",
+    "FeldmanSharing",
     "SecureAggregationSession",
     "shamir_split",
     "shamir_reconstruct",
