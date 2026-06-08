@@ -32,6 +32,12 @@ from presidio_ai.dp import (
     sign_approval,
 )
 from presidio_ai.evidence import build_dp_evidence, build_ingest_evidence, export_evidence
+from presidio_ai.fl import (
+    FedAvgAggregator,
+    FederatedClient,
+    SecureSumAggregator,
+    federated_train,
+)
 from presidio_ai.ingest import ingest_records
 from presidio_ai.ledger import Ledger, LedgerError, verify_chain
 from presidio_ai.pii import PIIBlockedError, PIIScrubber
@@ -291,6 +297,99 @@ def dp_train(
         typer.echo(f"Trained '{charge.job_id}': accuracy={model.accuracy:.3f}")
         typer.echo(f"  epsilon={charge.result.epsilon:.4f}  ledger seq {charge.ledger_seq}")
         typer.echo(f"  remaining {charge.remaining_epsilon:.4f}/{total_epsilon:.4f}")
+
+
+@app.command(name="fl-train")
+def fl_train(
+    silo: list[str] = typer.Option(
+        ..., "--silo", help='Silo JSONL of {"x":[...],"y":0|1} (repeatable).'
+    ),
+    rounds: int = typer.Option(..., "--rounds", help="Federated rounds."),
+    local_steps: int = typer.Option(..., "--local-steps", help="DP-SGD steps per round per silo."),
+    noise_multiplier: float = typer.Option(..., "--noise-multiplier", help="Gaussian noise sigma."),
+    sample_rate: float = typer.Option(..., "--sample-rate", help="Poisson sampling rate q."),
+    delta: float = typer.Option(1e-5, "--delta", help="Guarantee delta."),
+    clip_norm: float = typer.Option(1.0, "--clip-norm", help="Per-example L2 gradient clip."),
+    learning_rate: float = typer.Option(0.1, "--lr", help="Learning rate."),
+    seed: int = typer.Option(0, "--seed", help="RNG seed (deterministic)."),
+    secure_agg: bool = typer.Option(False, "--secure-agg", help="Use secure-sum aggregation."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Train across silos (FedAvg). Raw data stays per-silo; only DP updates are shared.
+
+    Reports the global model accuracy and each silo's composed (epsilon, delta) over
+    rounds x local_steps. With --secure-agg the coordinator recovers only the combined
+    update, not any individual silo's.
+    """
+    try:
+        clients = []
+        for path_str in silo:
+            validate_path(path_str)
+            path = Path(path_str)
+            if not path.exists():
+                _err(f"error: silo not found: {path}")
+                raise typer.Exit(1)
+            features: list[list[float]] = []
+            labels: list[int] = []
+            for n, record in enumerate(_read_jsonl(path), 1):
+                if not isinstance(record, dict) or "x" not in record or "y" not in record:
+                    raise ValidationError(f"{path.name} line {n}: need 'x' (list) and 'y' (0/1)")
+                x, y = record["x"], record["y"]
+                if not isinstance(x, list) or not all(isinstance(v, (int, float)) for v in x):
+                    raise ValidationError(f"{path.name} line {n}: 'x' must be a list of numbers")
+                if y not in (0, 1):
+                    raise ValidationError(f"{path.name} line {n}: 'y' must be 0 or 1")
+                features.append([float(v) for v in x])
+                labels.append(int(y))
+            if not features:
+                raise ValidationError(f"{path.name}: no training records")
+            clients.append(FederatedClient(path.stem, features, labels))
+
+        config = DPSGDConfig(
+            noise_multiplier=noise_multiplier,
+            sample_rate=sample_rate,
+            steps=local_steps,
+            delta=delta,
+            clip_norm=clip_norm,
+            learning_rate=learning_rate,
+        )
+        aggregator = SecureSumAggregator(seed=seed) if secure_agg else FedAvgAggregator()
+        result = federated_train(
+            clients, rounds=rounds, local_config=config, seed=seed, aggregator=aggregator
+        )
+    except (ValidationError, ValueError) as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+
+    log_security_event(
+        {
+            "event": "pai-fl-train",
+            "n_silos": len(clients),
+            "rounds": rounds,
+            "pooled_accuracy": result.pooled_accuracy,
+            "secure_agg": secure_agg,
+        }
+    )
+    summary = {
+        "rounds": result.rounds,
+        "n_silos": len(clients),
+        "pooled_accuracy": result.pooled_accuracy,
+        "secure_agg": secure_agg,
+        "per_client": {
+            cid: {"epsilon": r.epsilon, "delta": r.delta, "steps": r.steps}
+            for cid, r in result.per_client_epsilon.items()
+        },
+    }
+    if quiet:
+        typer.echo(json.dumps(summary))
+    else:
+        typer.echo(
+            f"Federated {result.rounds} rounds over {len(clients)} silo(s) "
+            f"({'secure-agg' if secure_agg else 'fedavg'})"
+        )
+        typer.echo(f"  pooled accuracy: {result.pooled_accuracy:.3f}")
+        for cid, r in result.per_client_epsilon.items():
+            typer.echo(f"  {cid}: epsilon={r.epsilon:.4f} over {r.steps} steps")
 
 
 @app.command()

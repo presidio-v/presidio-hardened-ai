@@ -132,6 +132,22 @@ dependency-free reference DP-SGD (correct per-example clipping + Gaussian noise)
 charged `(ε, δ)` is the guarantee of a real private run. The production Opacus backend
 plugs into the same `DPTrainer` interface behind the optional `[torch]` extra.
 
+
+### Federated learning across silos
+
+```bash
+# Train across silos whose data never leaves them; report per-silo DP cost.
+pai fl-train --silo eu.jsonl --silo us.jsonl --rounds 10 --local-steps 50 \
+    --noise-multiplier 1.1 --sample-rate 0.01 --secure-agg
+#   pooled accuracy: 0.93
+#   eu: epsilon=1.83 over 500 steps   us: epsilon=1.83 over 500 steps
+```
+
+Each `--silo` is a `{"x":[...],"y":0|1}` JSONL file. Silos train locally (DP-SGD) from the
+broadcast global model and only their updates are aggregated (FedAvg). With `--secure-agg`
+the coordinator recovers only the combined update, not any individual silo's. Each silo's
+`(ε, δ)` composes over `rounds × local-steps`.
+
 ## Library
 
 ```python
@@ -163,7 +179,8 @@ guard; `0600`/`0700` file permissions.
 | P1 | v0.1.0 | Evidence layer: ledger + PII-scrub + signed EvidenceRef |
 | P2 | v0.2.0 | ε-budget accountant + DP governance + DP evidence |
 | P2 | v0.3.0 | n-of-m authorization (MPA) for high-ε jobs |
-| **P2** | **v0.4.0** | **DP-SGD trainer: reference + Opacus seam (`pai dp-train`) — current** |
+| P2 | v0.4.0 | DP-SGD trainer: reference + Opacus seam (`pai dp-train`) |
+| **P3** | **v0.5.0** | **Federated learning: FedAvg + secure aggregation (`pai fl-train`) — current** |
 | P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
 | P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
 | P4 | — | Multi-party consortium (SMPC) — pull-only |

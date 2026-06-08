@@ -62,8 +62,8 @@ CLI command: `pai`
 | v0.1.0 | P1 | Evidence layer: tamper-evident ledger + PII-scrub on ingest + signed `EvidenceRef` export | Shipped |
 | v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | Shipped |
 | v0.3.0 | P2 | n-of-m authorization (MPA) for high-ε jobs (ikigov bridge deferred to ikigov v0.13.0) | Shipped |
-| v0.4.0 | P2 | DP-SGD trainer: verifiable stdlib reference + Opacus adapter seam (`pai dp-train`) | **Current** |
-| v0.5.0 | P3 | Federated learning for cross-border / cross-silo data | Planned |
+| v0.4.0 | P2 | DP-SGD trainer: verifiable stdlib reference + Opacus adapter seam (`pai dp-train`) | Shipped |
+| v0.5.0 | P3 | Federated learning: FedAvg across silos + secure aggregation + per-client DP (`pai fl-train`) | **Current** |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -274,6 +274,55 @@ the deferred `[torch]` lane.
 ### Future
 Opacus `DPTrainer` behind `[torch]` (real models, GPU) with an accounting cross-check vs
 this accountant in a torch CI lane; CSPRNG noise option for the reference trainer.
+
+---
+
+## v0.5.0 — P3: Federated Learning
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Let a single org (or consortium) train across **silos that never share raw data** — the
+P3 prize. Each silo runs local DP-SGD (the v0.4.0 reference trainer) starting from the
+broadcast global model; a coordinator combines updates by FedAvg. The coordinator sees
+only model updates, and a **secure-aggregation** seam means it can recover only the
+*combined* update, not any individual silo's. Fully verifiable (no torch); the Opacus
+local backend plugs in later via the v0.4.0 `DPTrainer` seam.
+
+### Components
+`fl/aggregation.py`: `Aggregator` protocol, `FedAvgAggregator` (sample-weighted mean),
+`SecureSumAggregator` (zero-sum additive masking — same result, individual contributions
+hidden). `fl/coordinator.py`: `FederatedClient`, `federated_train(clients, rounds,
+local_config, aggregator)`, `FederatedResult`. CLI `pai fl-train --silo … --silo …`.
+
+### Pinned semantics
+- **Per-client DP composes over rounds.** A silo runs `local_steps` DP-SGD steps per round
+  for `rounds` rounds; since RDP is additive over steps, the silo's guarantee is exactly
+  `dpsgd_epsilon(steps = rounds × local_steps)` at its noise/rate — computed per client.
+- **FedAvg** = sample-count-weighted mean of silo updates (McMahan et al. 2017).
+- **Secure aggregation** = additive masks that cancel across clients; the server recovers
+  Σ(weighted updates) without observing any single one. Single-process reference of the
+  pairwise-mask protocol.
+
+### Acceptance criteria (each maps to a test)
+1. FedAvg is the correct sample-weighted mean. *(test_fl)*
+2. SecureSum yields the same result as FedAvg; masked contributions sum (per coordinate)
+   to the raw weighted sum yet differ from the individual raw contributions. *(test_fl)*
+3. `federated_train` learns a separable boundary across two silos (pooled accuracy ≥0.9). *(test_fl)*
+4. Each silo's `per_client_epsilon` equals `dpsgd_epsilon(rounds × local_steps)`. *(test_fl)*
+5. Deterministic for a fixed seed; SecureSum end-to-end matches FedAvg. *(test_fl)*
+6. Invalid input (no clients, rounds<1, malformed silo) raises / CLI exit 1. *(test_fl)*
+
+### Security
+Raw silo data never leaves the silo — only DP-noised model updates are shared. Per-client
+DP bounds each silo's contribution; secure aggregation hides individual updates from the
+coordinator. The reference masking uses a seedable PRNG (noted as not production crypto;
+a deployment uses pairwise-exchanged mask seeds and a CSPRNG).
+
+### Future
+Opacus local backend behind `[torch]`; per-silo budget/evidence integration (reuse
+`EpsilonBudget` + D4 export per client); cross-silo (sample-level) accounting variants;
+dropout-robust secure aggregation.
 
 ---
 

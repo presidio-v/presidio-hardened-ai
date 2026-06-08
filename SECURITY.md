@@ -82,6 +82,18 @@ changing the `EvidenceRef` shape, which matches the
 - **Fail-closed** — insufficient or invalid approval rejects the charge and records nothing
   (CLI exit 3); over-budget is exit 2.
 
+
+### Federated learning (v0.5.0)
+
+- **Data stays in the silo.** Only DP-noised model updates are shared with the coordinator;
+  raw silo data never leaves it.
+- **Per-client differential privacy** bounds each silo's contribution and composes over
+  rounds × local steps (accounted per client).
+- **Secure aggregation** (`--secure-agg`) hides individual silo updates from the
+  coordinator via zero-sum additive masking; it recovers only the combined update. The
+  reference uses a seedable PRNG — a production deployment uses pairwise-exchanged mask
+  seeds and a CSPRNG.
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:
