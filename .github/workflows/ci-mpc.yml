@@ -1,0 +1,51 @@
+name: MPC CI
+
+# Lane for the optional secure-aggregation network transport ([mpc] extra). The
+# verifiable core (key agreement, wire format) runs in the default lane via the dev
+# extra; this lane installs the full [mpc] stack (X25519 + uvicorn/starlette) and
+# confirms the transport server wires up and the protocol tests pass against it.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  mpc:
+    name: pytest [mpc] (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install with the mpc extra
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[dev,mpc]"
+
+      - name: Lint (mpc lane tests)
+        run: |
+          ruff check tests/test_keyagreement.py tests/test_transport.py
+          ruff format --check tests/test_keyagreement.py tests/test_transport.py
+
+      - name: Run key-agreement + transport tests
+        run: pytest tests/test_keyagreement.py tests/test_transport.py -q
+
+      - name: Confirm the [mpc] transport server imports and wires up
+        run: |
+          python - <<'PY'
+          import inspect
+          from presidio_ai.fl import transport
+          assert callable(transport.serve)
+          # serve is the thin HTTP layer (pragma no cover); confirm it lazily requires
+          # uvicorn/starlette which the [mpc] extra provides.
+          import uvicorn, starlette  # noqa: F401
+          print("mpc transport import OK")
+          PY
