@@ -18,6 +18,13 @@ from presidio_ai.dp.accountant import (
     rdp_subsampled_gaussian,
     rdp_to_epsilon,
 )
+from presidio_ai.dp.authorization import (
+    MPADenied,
+    MPAPolicy,
+    build_request,
+    request_hash,
+    sign_approval,
+)
 from presidio_ai.dp.budget import BudgetExceeded, EpsilonBudget
 from presidio_ai.dp.trainer import DPSGDConfig, plan_privacy
 
@@ -30,6 +37,11 @@ __all__ = [
     "rdp_to_epsilon",
     "EpsilonBudget",
     "BudgetExceeded",
+    "MPAPolicy",
+    "MPADenied",
+    "build_request",
+    "request_hash",
+    "sign_approval",
     "DPSGDConfig",
     "plan_privacy",
 ]

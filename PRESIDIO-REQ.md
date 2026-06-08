@@ -60,8 +60,8 @@ CLI command: `pai`
 | Version | Phase | Theme | Status |
 |---|---|---|---|
 | v0.1.0 | P1 | Evidence layer: tamper-evident ledger + PII-scrub on ingest + signed `EvidenceRef` export | Shipped |
-| v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | **Current** |
-| v0.3.0 | P2 | n-of-m authorization for high-ε jobs; ikigov MCP bridge (`iga assess --evidence`) | Planned |
+| v0.2.0 | P2 | DP-SGD fine-tune harness + ε-budget accountant (public-base / private-delta) | Shipped |
+| v0.3.0 | P2 | n-of-m authorization (MPA) for high-ε jobs (ikigov bridge deferred to ikigov v0.13.0) | **Current** |
 | v0.4.0 | P3 | Federated learning for cross-border / cross-silo data | Planned |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
@@ -171,6 +171,62 @@ chain). Over-budget is fail-closed.
 Fractional-order (tighter) RDP and the Canonne–Kamath–Steinke (2020) conversion; RDP-level
 cross-job composition (tighter than basic); the Opacus-backed `DPTrainer` and its
 cross-validation against this accountant, wired under the `[torch]` extra in CI.
+
+---
+
+## v0.3.0 — P2: n-of-m Authorization for High-ε Jobs
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Gate any budget charge whose accounted epsilon meets a threshold behind **n-of-m
+approval**, reusing the `presidio-hardened-x402` multi-party-authorization design
+(HMAC-SHA256 countersignatures). This is the CRO control surface: a high
+privacy-risk training run cannot spend budget until enough recognised approvers
+have signed off, and the approval is recorded immutably in the ledger.
+
+**Why MPA only (bridge deferred).** The roadmap originally paired this with the
+ikigov MCP bridge. The bridge's consumer — ikigov v0.13.0 "external evidence-backed
+affirmation" — is not yet implemented, and the *producer* side already emits the
+exact `iga assess --evidence` document (the `EvidenceRef` export from P1/P2). The
+bridge is therefore "emitted, awaiting consumer"; wiring a live bridge against an
+unimplemented spec would be speculative coupling. It moves to a v0.3.x once ikigov
+v0.13.0 lands.
+
+### Components
+`dp/authorization.py` (`MPAPolicy`, `sign_approval`/`verify_approval`, `authorize`);
+`EpsilonBudget.charge` integration (records an `mpa-authorized` ledger entry *before*
+the charge, fail-closed); CLI `pai dp-authorize` (approver-side) and `--mpa-threshold`
+/ `--mpa-min-epsilon` / `--approver-keys` / `--approval` on `pai dp-charge`.
+
+### Design (pinned)
+An approval is an HMAC-SHA256 countersignature over the canonical **authorization
+request** (job id + the job's privacy parameters), bound to the approver id — so an
+approval cannot be replayed onto a different job or different (ε, δ). Authorization
+requires `threshold` distinct, recognised, correctly-signed approvers. Mirrors x402's
+crypto-countersignature mode.
+
+### Acceptance criteria (each maps to a test)
+1. A signature binds to (request, approver); a wrong key, wrong approver id, wrong
+   job, or altered params fails verification. *(test_authorization)*
+2. `MPAPolicy` rejects threshold < 1, threshold > approvers, and duplicate approvers. *(test_authorization)*
+3. A charge with ≥ threshold valid approvals records `mpa-authorized` **then** the
+   charge, in that order. *(test_mpa_integration)*
+4. Insufficient/invalid approvals raise `MPADenied` and record **nothing**
+   (fail-closed). *(test_mpa_integration)*
+5. ε below `min_epsilon` requires no approval even when a policy is set. *(test_mpa_integration)*
+6. CLI: `dp-authorize` emits a usable approval; `dp-charge` exits 0 with sufficient
+   approvals and **3** when denied. *(test_mpa_integration)*
+
+### Security
+Approver keys form a **local verifier trust store** (a JSON file / supplied map) — no
+network key resolution. Approvals are replay-bound to the request. The `mpa-authorized`
+ledger entry records approver ids and the request hash only — never keys. CLI exit
+codes: `2` budget exceeded, `3` authorization denied.
+
+### Future
+Webhook approver mode (full x402 parity); public-key (sigstore/minisign) approvals;
+the ikigov MCP bridge once ikigov v0.13.0 ships.
 
 ---
 
