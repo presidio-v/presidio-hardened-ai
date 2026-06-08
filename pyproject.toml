@@ -34,6 +34,10 @@ nlp = ["presidio-analyzer>=2.2", "spacy>=3.7"]
 torch = ["opacus>=1.4", "torch>=2.0"]
 crypto = ["cryptography>=42"]
 mpc = ["cryptography>=42", "uvicorn>=0.30", "starlette>=0.37"]
+# [zk] is reserved for the production ZK backend (a Ristretto255 group + Bulletproofs,
+# e.g. via a Rust-FFI dependency). The v1 bounded-norm proofs (fl.zk) are pure-Python
+# over the existing MODP group and need no extra; this keeps `pip install ...[zk]` valid.
+zk = []
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

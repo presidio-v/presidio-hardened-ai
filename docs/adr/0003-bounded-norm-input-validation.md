@@ -1,6 +1,6 @@
 # ADR-0003: Bounded-norm input validation via zero-knowledge proofs
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — proving each consortium contribution is *well-formed*
@@ -8,6 +8,19 @@
 **Amends:** [ADR-0002](0002-malicious-security-hardening.md) — adds *input honesty* to the
 *protocol honesty* ADR-0002 secured; both build on the [ADR-0001](0001-multiparty-secure-aggregation.md)
 secure-aggregation core.
+
+> **Implementation status (v0.19.0–v0.20.0).** Accepted; v1 built. `fl.zk` ships a
+> transparent Pedersen bit-decomposition **range proof** + an **L∞ bounded-norm vector
+> proof**; `run_secure_consortium_round(clip_bound=…)` gates admission on it and records
+> `sensitivity_proven` on the ledger (action items 2, 4, 5, 6).
+> **Deviation (items 3 & 7), surfaced honestly:** the recommended *Bulletproofs over
+> Ristretto255* is not realisable here — this libsodium build exposes no Ristretto255
+> (only cofactor-8 ed25519, unsafe raw) and there is **no vetted Python Bulletproofs
+> library**. Rather than ship unverified curve/Bulletproofs code, v1 uses a textbook,
+> fully-tested range proof over the already-vetted MODP-2048 prime-order group (same ZK
+> guarantee; `O(n)` proof vs `O(log n)`). The Ristretto255 migration + log-size
+> compression remain the perf follow-up (a different libsodium build or a Rust-FFI
+> dependency behind the reserved `[zk]` extra).
 
 ## Context
 
@@ -178,21 +191,23 @@ ADR puts on the table.
   separate robustness ADR.
 
 ## Action Items
-1. [ ] Threat-model delta: state precisely what bounded-norm validation adds (per-party norm
+1. [x] Threat-model delta: state precisely what bounded-norm validation adds (per-party norm
        honesty / anti-poisoning) and what it does **not** (in-norm backdoors, Sybil/identity)
-       and tie the proven bound to the DP clip sensitivity.
-2. [ ] Decide proof system (Bulletproofs) and **v1 norm = L∞**; specify the statement,
+       and tie the proven bound to the DP clip sensitivity. **Done** — PRESIDIO-REQ + SECURITY.md.
+2. [x] Decide proof system (Bulletproofs) and **v1 norm = L∞**; specify the statement,
        generators, and the Fiat-Shamir transcript (must bind commitments, bound `B`, round id).
-3. [ ] Decide the group: keep MODP-2048 vs **migrate Pedersen commitments to Ristretto255**
+3. [x] Decide the group: keep MODP-2048 vs **migrate Pedersen commitments to Ristretto255**
        for proving performance; and **build vs. depend** (hand-rolled core vs. vetted lib).
-       Pin a cross-repo golden vector for whatever is chosen.
-4. [ ] Implement the **pure-Python verifiable core** (range proof + inner-product argument,
+       **Decided (with deviation):** v1 keeps the vetted MODP-2048 group (no Ristretto255 in
+       this libsodium build; no vetted Python Bulletproofs library). Ristretto255 + a
+       Bulletproofs dependency behind `[zk]` remain the perf follow-up — see item 7.
+4. [x] Implement the **pure-Python verifiable core** (range proof + inner-product argument,
        small params) with tests: a valid in-bound proof verifies; an out-of-bound or tampered
        proof **fails closed**; the transcript rejects a re-bound (weak-Fiat-Shamir) proof.
-5. [ ] Wire admission gating into `run_secure_consortium_round`: a contribution is admitted
+5. [x] Wire admission gating into `run_secure_consortium_round`: a contribution is admitted
        only if its norm proof verifies; a failing proof excludes the party / aborts; record
        the proof's verification outcome (not the proof) on the ledger.
-6. [ ] Bind the proven bound to the **DP clip sensitivity** so the accountant's per-client
+6. [x] Bind the proven bound to the **DP clip sensitivity** so the accountant's per-client
        `(ε, δ)` is enforced, and surface "sensitivity: proven" in the signed `D4` evidence.
 7. [ ] Benchmark prover/verifier at realistic model dimension with proof **aggregation +
        batched verification**; document the cost and the `[zk]` extra / dependency decision.
