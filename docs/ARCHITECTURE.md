@@ -86,7 +86,7 @@ iga assess --use-case fraud-scoring --risk-class high --affirm S1,S2 \
     --evidence evidence.json --trust trust.json --quiet
 ```
 
-Result (verified against `presidio-hardened-ai` v0.10.0 + ikigov v0.18.0):
+Result (verified against `presidio-hardened-ai` v0.20.0 + ikigov v0.19.0):
 
 ```
 affirmed:        ["D1", "D4", "O5", "S1", "S2"]
@@ -97,6 +97,49 @@ evidence_coverage: 3/5 affirmed items backed (3 verified) = 60%
 `D1` (data lineage), `D4` (DPIA inputs) and `O5` (immutable audit log) are affirmed by
 cryptographically verified evidence; `S1`/`S2` remain self-attested. The full bundle can
 then be sealed with `iga export` / `iga verify-bundle`.
+
+### Consortium round (P4, malicious-secure) — verified
+
+The same claim→evidence loop closes for a **multi-party** round. Several mutually-distrusting
+banks jointly train; the coordinator (and any colluding minority) learns only the aggregate;
+the round is hardened against a *deviating* coordinator or party and proves each contribution
+is within the DP clip norm — then emits one signed `D4` an auditor verifies exactly like the
+single-node case.
+
+```python
+# presidio-hardened-ai: one governed, malicious-secure consortium round
+from presidio_ai.fl.consortium import run_secure_consortium_round, sign_survivor_set
+res = run_secure_consortium_round(
+    round_id="round-1", updates=updates, dp_results=dp, session=session,  # verifiable-mode (Feldman VSS)
+    ledger=ledger, survivor_signatures=sigs, survivor_keys=skeys, survivor_threshold=2,
+    group=group, budgets=budgets, clip_bound=2.0,                          # ZK bounded-norm gate
+    signing_key=PRIV, signer="presidio-hardened-ai", algorithm="ed25519",
+    evidence_path="consortium.evidence.json",
+)
+
+# presidio-hardened-ikigov-assess: verify the round's evidence with only the public key
+from presidio_ikigov_assess.evidence import load_evidence, load_trust_store, verify_ref
+refs  = load_evidence(open("consortium.evidence.json").read())
+trust = load_trust_store('{"presidio-hardened-ai": {"alg": "ed25519", "public_key": "<PUB>"}}')
+assert verify_ref(refs[0], trust)        # D4 verifies; a tampered key fails closed
+```
+
+Result (verified live against `presidio-hardened-ai` v0.20.0 + ikigov v0.19.0):
+
+```
+PRODUCER  survivors=[bankA,bankB,bankC]  signers=[bankA,bankB,bankC]
+          max per-silo epsilon=1.0795    charged silos=[bankA,bankB,bankC]
+          ledger: sensitivity_proven=True  clip_bound=2.0
+          signed D4 evidence -> consortium.evidence.json
+CONSUMER  D4: verify_ref=True  (signer=presidio-hardened-ai, ledger_ref=pai-ledger:seq/1)
+          tampered-key verify (must be False): False
+```
+
+What that one run exercises, all composing: authenticated key agreement → Feldman-VSS seed
+sharing → Pedersen-committed signed inputs → **ZK bounded-norm proofs** (so the per-client
+`(ε, δ)` is *proven*, not assumed) → exact field secure aggregation with dropout recovery →
+signed survivor-set + homomorphic aggregate check (security-with-abort) → n-of-m MPA →
+per-silo ε charged to tamper-evident budgets → one signed `D4` the governance spine verifies.
 
 ## Coordination invariants
 
@@ -109,13 +152,21 @@ then be sealed with `iga export` / `iga verify-bundle`.
 - **Federated parity** — `pai fl-train --charge` produces the same per-silo ledger + signed
   evidence as single-node `dp-train`, so a consortium feeds each silo's evidence into an
   independent assessment.
+- **Consortium round invariants (P4)** — the producer and all parties must share the *same*
+  `SecureAggregationSession` group for verifiable mode (Feldman VSS) and the same commitment
+  group for the ZK proofs; `clip_bound` is the DP clip sensitivity, so a verifying bounded-norm
+  proof makes the charged `(ε, δ)` sound against a malicious client. Guarantee is
+  **security-with-abort**: any deviation (equivocation, false aggregate, inconsistent share,
+  out-of-norm input) yields a clean, ledger-recorded abort rather than a bad result.
 
 ## Status (at time of writing)
 
-- **presidio-hardened-ai** v0.10.0 — P1 evidence layer · P2 ε-accountant (+CKS-2020
-  conversion) · MPA · DP-SGD (reference + Opacus `[torch]`) · federated learning + per-silo
-  governance · Ed25519 signing (default).
-- **presidio-hardened-ikigov-assess** v0.18.0 — assessment/scoring/gates · ISO 42001 / EU
+- **presidio-hardened-ai** v0.20.0 — P1 evidence layer · P2 ε-accountant (CKS-2020 +
+  fractional-order RDP) · MPA · DP-SGD (reference + Opacus `[torch]`) · federated learning +
+  per-silo governance · **P4 consortium**: exact secure aggregation + dropout recovery,
+  `[mpc]` authenticated key agreement, malicious-secure rounds (commitments + Feldman VSS +
+  signed survivor-set), ZK bounded-norm input validation · Ed25519 signing (default).
+- **presidio-hardened-ikigov-assess** v0.19.0 — assessment/scoring/gates · ISO 42001 / EU
   AI Act / NIST AI RMF via content packs · signed evidence-pack export · external
   evidence-backed affirmation (Ed25519 + rotation) · multi-tenant remote MCP.
 - **presidio-hardened-x402** — published payment-security middleware (PII redaction, spend
