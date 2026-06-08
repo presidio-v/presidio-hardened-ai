@@ -138,6 +138,8 @@ plugs into the same `DPTrainer` interface behind the optional `[torch]` extra.
 ```bash
 # Train across silos whose data never leaves them; report per-silo DP cost.
 pai fl-train --silo eu.jsonl --silo us.jsonl --rounds 10 --local-steps 50 \
+    --charge --total-epsilon 10 --ledger-dir audit/fl/ \
+    --evidence-dir audit/fl-evidence/ --signing-key "$PRIV_HEX" \
     --noise-multiplier 1.1 --sample-rate 0.01 --secure-agg
 #   pooled accuracy: 0.93
 #   eu: epsilon=1.83 over 500 steps   us: epsilon=1.83 over 500 steps
@@ -218,6 +220,7 @@ guard; `0600`/`0700` file permissions.
 | P2 | v0.3.0 | n-of-m authorization (MPA) for high-ε jobs |
 | P2 | v0.4.0 | DP-SGD trainer: reference + Opacus seam (`pai dp-train`) |
 | P3 | v0.5.0 | Federated learning: FedAvg + secure aggregation (`pai fl-train`) |
+| **P3** | **v0.9.0** | **FL governance: per-silo ε-budget + signed D4 evidence (`fl-train --charge`) — current** |
 | P2 | v0.6.0 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise |
 | — | v0.7.0 | Ed25519 public-key evidence signing + `pai keygen` |
 | **—** | **v0.8.0** | **Ed25519 is the default signing algorithm — current** |

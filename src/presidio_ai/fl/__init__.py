@@ -15,6 +15,7 @@ from presidio_ai.fl.coordinator import (
     FederatedResult,
     federated_train,
 )
+from presidio_ai.fl.governance import SiloGovernance, charge_federated
 
 __all__ = [
     "Aggregator",
@@ -23,4 +24,6 @@ __all__ = [
     "FederatedClient",
     "FederatedResult",
     "federated_train",
+    "SiloGovernance",
+    "charge_federated",
 ]

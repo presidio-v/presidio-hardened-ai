@@ -66,7 +66,8 @@ CLI command: `pai`
 | v0.5.0 | P3 | Federated learning: FedAvg across silos + secure aggregation + per-client DP (`pai fl-train`) | Shipped |
 | v0.6.0 | P2 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise option for the reference trainer | Shipped |
 | v0.7.0 | — | Ed25519 public-key evidence signing + `pai keygen` (`[crypto]` extra); HMAC default | Shipped |
-| v0.8.0 | — | Ed25519 becomes the **default** signing algorithm (coordinated with ikigov v0.14.0 verification) | **Current** |
+| v0.8.0 | — | Ed25519 becomes the **default** signing algorithm (coordinated with ikigov v0.14.0 verification) | Shipped |
+| v0.9.0 | P3 | FL governance: per-silo ε-budget charging + signed D4 evidence in `pai fl-train` (`--charge`) | **Current** |
 | — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
 
 ---
@@ -450,6 +451,37 @@ locks the wire format for the cross-repo consumer.
 ### Future
 Flip the default to Ed25519 once ikigov verifies it; key rotation / multiple active keys
 per signer; sigstore keyless option.
+
+---
+
+## v0.9.0 — Federated-Learning Governance (per-silo budget + evidence)
+
+**Deliberated:** 2026-06-08
+
+### Scope decision
+Close the FL governance loop: a federated run should produce the **same** auditable
+artifacts as single-node `dp-train`, but **per silo**. `charge_federated` charges each
+silo's composed (ε, δ) to its own tamper-evident ledger budget and optionally exports a
+signed **D4** evidence ref per silo — so a consortium can feed each member's evidence into
+an independent IKI-Gov assessment. Per-silo budgets are independent; raw data still never
+leaves the silo (unchanged from v0.5.0).
+
+### Components
+`fl/governance.py` (`charge_federated`, `SiloGovernance`). CLI: `pai fl-train` gains
+`--charge` with `--total-epsilon`, `--ledger-dir`, `--key`, and optional `--evidence-dir` /
+`--algorithm` / `--signing-key` / `--signer` (Ed25519 default, consistent with v0.8.0).
+
+### Acceptance criteria (each maps to a test)
+1. `charge_federated` writes one charge entry to each silo's own (chain-verified) ledger. *(test_fl_governance)*
+2. With `--evidence-dir`, each silo's D4 evidence verifies under the Ed25519 public key. *(test_fl_governance)*
+3. Per-silo budgets are independent; a silo's ledger holds only its own charge. *(test_fl_governance)*
+4. Over-budget raises `BudgetExceeded` (CLI exit 2). *(test_fl_governance)*
+5. CLI `--charge` reports per-silo remaining ε + evidence path; missing `--total-epsilon`/
+   `--ledger-dir` exits 1. *(test_fl_governance)*
+
+### Completes
+The DP → budget → evidence → ikigov loop now holds for federated training, not just
+single-node — the full suite governs centralized and cross-silo training identically.
 
 ---
 
