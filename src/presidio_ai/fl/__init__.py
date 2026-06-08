@@ -18,6 +18,8 @@ from presidio_ai.fl.coordinator import (
 from presidio_ai.fl.governance import SiloGovernance, charge_federated
 from presidio_ai.fl.secure_agg import (
     SecureAggregationSession,
+    dequantize,
+    quantize,
     shamir_reconstruct,
     shamir_split,
 )
@@ -34,4 +36,6 @@ __all__ = [
     "SecureAggregationSession",
     "shamir_split",
     "shamir_reconstruct",
+    "quantize",
+    "dequantize",
 ]
