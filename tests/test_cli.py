@@ -118,3 +118,53 @@ def test_block_action_exits_1(tmp_path, monkeypatch):
         ],
     )
     assert result.exit_code == 1
+
+
+def test_consortium_round_cli(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRESIDIO_AI_LEDGER_KEY", KEY)
+    monkeypatch.setenv("PRESIDIO_AI_HOME", str(tmp_path / "home"))
+    spec = {
+        "round_id": "r1",
+        "delta": 1e-5,
+        "dim": 3,
+        "threshold": 2,
+        "updates": {
+            "bankA": [0.1, 0.2, 0.3],
+            "bankB": [0.0, -0.1, 0.4],
+            "bankC": [0.2, 0.2, -0.2],
+        },
+        "dp": {
+            "bankA": {"noise_multiplier": 1.1, "sample_rate": 0.01, "steps": 50},
+            "bankB": {"noise_multiplier": 1.1, "sample_rate": 0.01, "steps": 50},
+            "bankC": {"noise_multiplier": 1.1, "sample_rate": 0.01, "steps": 50},
+        },
+    }
+    round_file = tmp_path / "round.json"
+    round_file.write_text(json.dumps(spec))
+    ledger = tmp_path / "round.jsonl"
+    evidence = tmp_path / "round.evidence.json"
+    result = runner.invoke(
+        app,
+        [
+            "consortium-round",
+            "--round-file",
+            str(round_file),
+            "--ledger",
+            str(ledger),
+            "--budget-dir",
+            str(tmp_path / "budgets"),
+            "--evidence-out",
+            str(evidence),
+            "--algorithm",
+            "hmac-sha256",
+            "--quiet",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    summary = json.loads(result.stdout)
+    assert summary["n_survivors"] == 3
+    assert summary["dropped"] == []
+    expected = [sum(spec["updates"][p][k] for p in spec["updates"]) for k in range(3)]
+    assert all(abs(a - e) < 1e-3 for a, e in zip(summary["aggregate"], expected, strict=True))
+    assert evidence.exists()
+    assert (tmp_path / "budgets" / "bankA.jsonl").exists()

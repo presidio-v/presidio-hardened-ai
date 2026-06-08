@@ -10,6 +10,11 @@ server recovers only the *combined* update, not any individual silo's.
 from __future__ import annotations
 
 from presidio_ai.fl.aggregation import Aggregator, FedAvgAggregator, SecureSumAggregator
+from presidio_ai.fl.consortium import (
+    ConsortiumError,
+    ConsortiumRoundResult,
+    run_consortium_round,
+)
 from presidio_ai.fl.coordinator import (
     FederatedClient,
     FederatedResult,
@@ -33,6 +38,9 @@ __all__ = [
     "federated_train",
     "SiloGovernance",
     "charge_federated",
+    "run_consortium_round",
+    "ConsortiumRoundResult",
+    "ConsortiumError",
     "SecureAggregationSession",
     "shamir_split",
     "shamir_reconstruct",

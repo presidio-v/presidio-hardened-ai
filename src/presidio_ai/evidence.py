@@ -209,3 +209,56 @@ def build_dp_evidence(
     content_hash = sha256_hex(result.as_dict())
     ledger_ref = f"pai-ledger:seq/{charge_seq}"
     return [_make_ref("D4", content_hash, ledger_ref, signing_key, signer, algorithm)]
+
+
+# ── Consortium-round evidence (P4) ──────────────────────────────────────────
+# A consortium round produces one aggregate update via secure aggregation; the
+# coordinator never sees an individual party's update. The evidence commits to
+# the *aggregate only* — its content hash and the round's privacy parameters —
+# never to any single member's contribution, consistent with commitments-only.
+SUPPORTED_CONSORTIUM_ITEMS: dict[str, str] = {
+    "D4": "DPIA input: secure-aggregation round (aggregate commitment + max (epsilon, delta))",
+}
+
+
+def consortium_commitment(
+    *,
+    round_id: str,
+    aggregate_field: list[int],
+    max_epsilon: float,
+    delta: float,
+    n_parties: int,
+    n_survivors: int,
+) -> dict[str, object]:
+    """Canonical, content-free commitment for a secure-aggregation round.
+
+    Commits to the *aggregate* (the exact field-domain sum), the round's worst-case
+    per-party ``(epsilon, delta)``, and the participation counts — never an
+    individual update.
+    """
+    return {
+        "round_id": round_id,
+        "aggregate_sha256": sha256_hex({"agg": list(aggregate_field)}),
+        "max_epsilon": max_epsilon,
+        "delta": delta,
+        "n_parties": n_parties,
+        "n_survivors": n_survivors,
+    }
+
+
+def build_consortium_evidence(
+    commitment: dict[str, object],
+    *,
+    signing_key: bytes | str,
+    signer: str,
+    round_seq: int,
+    algorithm: str = "ed25519",
+) -> list[EvidenceRef]:
+    """Build one signed D4 EvidenceRef for a consortium round.
+
+    ``commitment`` is a :func:`consortium_commitment` dict; ``round_seq`` is the
+    ledger sequence of the consortium-round entry the evidence points at.
+    """
+    content_hash = sha256_hex(commitment)
+    ledger_ref = f"pai-ledger:seq/{round_seq}"
+    return [_make_ref("D4", content_hash, ledger_ref, signing_key, signer, algorithm)]

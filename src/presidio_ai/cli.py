@@ -38,11 +38,14 @@ from presidio_ai.evidence import (
     generate_ed25519_keypair,
 )
 from presidio_ai.fl import (
+    ConsortiumError,
     FedAvgAggregator,
     FederatedClient,
+    SecureAggregationSession,
     SecureSumAggregator,
     charge_federated,
     federated_train,
+    run_consortium_round,
 )
 from presidio_ai.ingest import ingest_records
 from presidio_ai.ledger import Ledger, LedgerError, verify_chain
@@ -722,6 +725,155 @@ def dp_budget(
         )
     else:
         typer.echo(f"budget: {spent:.4f} / {total_epsilon:.4f} spent (remaining {remaining:.4f})")
+
+
+@app.command(name="consortium-round")
+def consortium_round(
+    round_file: Path = typer.Option(
+        ..., "--round-file", help="JSON: {round_id, delta, dim, threshold, updates, dp, dropped?}."
+    ),
+    ledger_path: Path = typer.Option(..., "--ledger", help="Path to the round JSON-L ledger."),
+    key: str | None = typer.Option(None, "--key", help=f"Ledger/signing key (or ${_KEY_ENV})."),
+    budget_dir: Path | None = typer.Option(
+        None, "--budget-dir", help="Per-silo budget ledgers <dir>/<silo>.jsonl."
+    ),
+    budget_epsilon: float = typer.Option(
+        10.0, "--budget-epsilon", help="Per-silo total epsilon budget (with --budget-dir)."
+    ),
+    mpa_threshold: int = typer.Option(
+        0, "--mpa-threshold", help="Require n-of-m approval (0=off)."
+    ),
+    mpa_min_epsilon: float = typer.Option(
+        0.0, "--mpa-min-epsilon", help="Authorize at/above this round epsilon."
+    ),
+    approver_keys: Path | None = typer.Option(
+        None, "--approver-keys", help="JSON file: {approver_id: key}."
+    ),
+    approval: list[str] | None = typer.Option(
+        None, "--approval", help="Approval as id:hexsig (repeatable)."
+    ),
+    evidence_out: Path | None = typer.Option(
+        None, "--evidence-out", help="Write the round's signed D4 EvidenceRef JSON."
+    ),
+    signer: str = typer.Option("presidio-hardened-ai", "--signer", help="Evidence signer id."),
+    algorithm: str = typer.Option(
+        "ed25519", "--algorithm", help="Evidence signing: ed25519 | hmac-sha256."
+    ),
+    signing_key: str | None = typer.Option(
+        None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
+) -> None:
+    """Run one governed secure-aggregation round: MPA -> aggregate -> per-silo charge -> D4."""
+    resolved_key = _resolve_key(key)
+    try:
+        spec = json.loads(round_file.read_text(encoding="utf-8"))
+        round_id = validate_identifier(str(spec["round_id"]), what="round-id")
+        delta = float(spec["delta"])
+        dim = int(spec["dim"])
+        threshold = int(spec["threshold"])
+        updates = {str(k): [float(x) for x in v] for k, v in spec["updates"].items()}
+        dp_spec = spec["dp"]
+        dropped = [str(x) for x in spec.get("dropped", [])]
+        parties = sorted(set(updates) | set(dropped))
+        dp_results = {
+            s: dpsgd_epsilon(
+                noise_multiplier=float(dp_spec[s]["noise_multiplier"]),
+                sample_rate=float(dp_spec[s]["sample_rate"]),
+                steps=int(dp_spec[s]["steps"]),
+                delta=delta,
+            )
+            for s in updates
+        }
+        session = SecureAggregationSession(parties, dim=dim, threshold=threshold)
+
+        policy = None
+        keys: dict[str, str] = {}
+        approvals: dict[str, str] = {}
+        if mpa_threshold > 0:
+            if approver_keys is None or not approver_keys.exists():
+                _err("error: --approver-keys JSON file is required when --mpa-threshold > 0")
+                raise typer.Exit(1)
+            keys = json.loads(approver_keys.read_text())
+            policy = MPAPolicy(
+                threshold=mpa_threshold, min_epsilon=mpa_min_epsilon, approvers=tuple(sorted(keys))
+            )
+            approvals = _parse_approvals(approval)
+
+        budgets = None
+        if budget_dir is not None:
+            budget_dir.mkdir(parents=True, exist_ok=True)
+            budgets = {
+                s: EpsilonBudget(
+                    budget_epsilon, delta, Ledger(budget_dir / f"{s}.jsonl", key=resolved_key)
+                )
+                for s in updates
+            }
+
+        alg, sig_key = (algorithm, None)
+        if evidence_out is not None:
+            alg, sig_key = _resolve_signing(algorithm, resolved_key, signing_key)
+
+        result = run_consortium_round(
+            round_id=round_id,
+            updates=updates,
+            dp_results=dp_results,
+            session=session,
+            ledger=Ledger(ledger_path, key=resolved_key),
+            budgets=budgets,
+            dropped=dropped,
+            policy=policy,
+            approvals=approvals,
+            approver_keys=keys,
+            signing_key=sig_key,
+            signer=signer,
+            algorithm=alg,
+            evidence_path=evidence_out,
+        )
+    except MPADenied as exc:
+        _err(f"AUTHORIZATION DENIED: {exc}")
+        raise typer.Exit(3) from exc
+    except BudgetExceeded as exc:
+        _err(f"BUDGET EXCEEDED: {exc}")
+        raise typer.Exit(2) from exc
+    except (KeyError, ValueError, ConsortiumError, LedgerError, ValidationError) as exc:
+        _err(f"error: {exc}")
+        raise typer.Exit(1) from exc
+
+    log_security_event(
+        {
+            "event": "pai-consortium-round",
+            "round_id": result.round_id,
+            "n_survivors": len(result.survivors),
+            "n_dropped": len(result.dropped),
+            "max_epsilon": result.max_epsilon,
+            "authorized": bool(result.approvers),
+            "evidence_exported": evidence_out is not None,
+        }
+    )
+    summary = {
+        "round_id": result.round_id,
+        "n_survivors": len(result.survivors),
+        "dropped": result.dropped,
+        "max_epsilon": result.max_epsilon,
+        "delta": result.delta,
+        "approvers": result.approvers,
+        "ledger_seq": result.ledger_seq,
+        "aggregate": result.aggregate,
+        "evidence": str(result.evidence_path) if result.evidence_path else None,
+    }
+    if quiet:
+        typer.echo(json.dumps(summary))
+    else:
+        typer.echo(f"Consortium round '{result.round_id}': {len(result.survivors)} survivors")
+        if result.dropped:
+            typer.echo(f"  recovered from dropout of: {', '.join(map(str, result.dropped))}")
+        if result.approvers:
+            typer.echo(f"  authorized by: {', '.join(result.approvers)}")
+        typer.echo(f"  max per-silo epsilon: {result.max_epsilon:.4f}  (delta={result.delta})")
+        typer.echo(f"  ledger seq: {result.ledger_seq}")
+        if result.evidence_path:
+            typer.echo(f"  evidence: {result.evidence_path}")
 
 
 def main() -> None:  # pragma: no cover - console-script entry point
