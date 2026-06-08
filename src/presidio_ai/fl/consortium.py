@@ -47,7 +47,8 @@ from presidio_ai.fl.commit import (
     pedersen_sum,
     random_scalar,
 )
-from presidio_ai.fl.secure_agg import SecureAggregationSession, dequantize, quantize
+from presidio_ai.fl.secure_agg import PRIME, SecureAggregationSession, dequantize
+from presidio_ai.fl.zk import ProofError, prove_bounded, verify_bounded
 from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ledger import Ledger
 
@@ -268,18 +269,24 @@ def verify_aggregate_commitment(
     party_randomness: Mapping[Hashable, Sequence[int]],
     *,
     group: SchnorrGroup,
+    prime: int = PRIME,
 ) -> bool:
     """Check the aggregate against the homomorphic sum of per-party input commitments.
 
-    Per coordinate ``k``: ``Π_i C[i][k]`` must equal ``pedersen_commit(aggregate[k],
-    Σ_i r[i][k])``. Holds when the true per-coordinate sum does not wrap the masking field
-    (the same no-overflow operating range that correct de-quantisation already requires).
+    Parties commit to *signed* fixed-point values, so per coordinate ``k`` the product
+    ``Π_i C[i][k]`` must equal ``pedersen_commit(centered(aggregate[k]), Σ_i r[i][k])``,
+    where ``centered`` maps a masking-field element above ``prime/2`` to its negative.
+    Holds when the true per-coordinate sum does not wrap the masking field (the same
+    no-overflow operating range that correct de-quantisation already requires).
     """
     dim = len(aggregate_field)
     for k in range(dim):
         product = pedersen_sum([party_commits[p][k] for p in party_commits], group)
         r_sum = sum(party_randomness[p][k] for p in party_randomness)
-        if product != pedersen_commit(aggregate_field[k], r_sum, group):
+        centered = (
+            aggregate_field[k] - prime if aggregate_field[k] > prime // 2 else aggregate_field[k]
+        )
+        if product != pedersen_commit(centered, r_sum, group):
             return False
     return True
 
@@ -318,6 +325,7 @@ def run_secure_consortium_round(
     signer: str = "presidio-hardened-ai",
     algorithm: str = "ed25519",
     evidence_path: str | Path | None = None,
+    clip_bound: float | None = None,
     rng=None,
 ) -> SecureConsortiumResult:
     """A consortium round hardened against active deviation (ADR-0002, security-with-abort).
@@ -328,6 +336,12 @@ def run_secure_consortium_round(
     reconstruction); (4) the aggregate is checked homomorphically against the commitments —
     only then are (5) MPA authorization, per-silo DP charges, the round ledger entry, and
     the signed ``D4`` evidence performed.
+
+    If ``clip_bound`` is given (ADR-0003), each survivor must also supply a zero-knowledge
+    L∞ bounded-norm proof that every committed coordinate lies in ``[-B, B]`` with ``B``
+    the clip sensitivity (in fixed-point units); a contribution whose proof fails — or
+    whose update is out of bound — is rejected, so the per-client DP sensitivity is
+    *proven*, not assumed. The proven outcome is recorded on the ledger.
     """
     if session.group is None:
         raise ConsortiumError("run_secure_consortium_round requires a verifiable-mode session")
@@ -363,22 +377,43 @@ def run_secure_consortium_round(
         },
     )
 
-    # 2. Commit each survivor's quantised input (Pedersen, additively homomorphic).
-    q_updates = {
-        s: [quantize(v, frac_bits=session.frac_bits, prime=session.prime) for v in updates[s]]
-        for s in survivors
-    }
+    # 2. Commit each survivor's *signed* fixed-point input (Pedersen, additively homomorphic;
+    # signed so the same commitment is range-provable and the homomorphic check composes).
+    scale = 1 << session.frac_bits
+    s_updates = {s: [round(v * scale) for v in updates[s]] for s in survivors}
     party_commits: dict[Hashable, list[int]] = {}
     party_randomness: dict[Hashable, list[int]] = {}
     for s in survivors:
-        party_commits[s], party_randomness[s] = commit_quantized(q_updates[s], group=group, rng=rng)
+        party_commits[s], party_randomness[s] = commit_quantized(s_updates[s], group=group, rng=rng)
+
+    # 2b. Bounded-norm gate (ADR-0003): each input is ZK-proven within the clip sensitivity,
+    # against the *same* commitments, so a poisoning (out-of-norm) contribution is rejected.
+    sensitivity_proven = False
+    if clip_bound is not None:
+        if clip_bound <= 0:
+            raise ConsortiumError("clip_bound must be > 0")
+        bound_fp = round(clip_bound * scale)
+        for sid in survivors:
+            try:
+                norm_proof = prove_bounded(
+                    s_updates[sid], party_randomness[sid], bound=bound_fp, group=group, rng=rng
+                )
+            except ProofError as exc:
+                raise ConsortiumError(
+                    f"input failed bounded-norm for '{sid}' (norm > clip sensitivity): {exc}"
+                ) from exc
+            if not verify_bounded(party_commits[sid], norm_proof, group=group):
+                raise ConsortiumError(f"bounded-norm proof did not verify for '{sid}'")
+        sensitivity_proven = True
 
     # 3. Secure aggregation (verifiable session: VSS-checked reconstruction).
-    masked = {s: session.mask_field(s, q_updates[s]) for s in survivors}
+    masked = {s: session.mask_field(s, s_updates[s]) for s in survivors}
     agg_field = session.aggregate_field(masked)
 
     # 4. Homomorphic aggregate check (defeats a false aggregate). Abort before side effects.
-    if not verify_aggregate_commitment(agg_field, party_commits, party_randomness, group=group):
+    if not verify_aggregate_commitment(
+        agg_field, party_commits, party_randomness, group=group, prime=session.prime
+    ):
         raise ConsortiumError(
             f"aggregate does not match committed inputs for round '{round_id}' (false aggregate)"
         )
@@ -437,6 +472,8 @@ def run_secure_consortium_round(
             "n_parties": len(session.party_ids),
             "n_survivors": len(survivors),
             "survivor_signers": signers,
+            "sensitivity_proven": sensitivity_proven,
+            "clip_bound": clip_bound,
             "per_silo_epsilon": {str(s): dp_results[s].epsilon for s in survivors},
         },
     )
