@@ -97,5 +97,6 @@ def test_opacus_epsilon_cross_validates_accountant():
         delta=cfg.delta,
     ).epsilon
     assert eps_opacus > 0 and eps_ours > 0
-    # Same order of magnitude; tolerant of accountant differences across opacus versions.
-    assert 0.2 < (eps_opacus / eps_ours) < 5.0
+    # With the fractional-order grid (v0.15.0) our accountant uses the same RDP math as
+    # Opacus, so the two should agree closely (tolerant only of order-grid differences).
+    assert eps_ours == pytest.approx(eps_opacus, rel=0.2)

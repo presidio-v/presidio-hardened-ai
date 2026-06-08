@@ -6,10 +6,13 @@ import pytest
 
 from presidio_ai.dp.accountant import (
     DEFAULT_ORDERS,
+    FRACTIONAL_ORDERS,
     AccountantError,
+    _log_erfc,
     dpsgd_epsilon,
     rdp_gaussian,
     rdp_subsampled_gaussian,
+    rdp_subsampled_gaussian_real,
     rdp_to_epsilon,
 )
 
@@ -79,7 +82,7 @@ def test_epsilon_monotonicity():
 def test_dpsgd_result_fields():
     r = dpsgd_epsilon(noise_multiplier=1.1, sample_rate=0.01, steps=1000, delta=1e-5)
     assert r.epsilon > 0 and math.isfinite(r.epsilon)
-    assert r.optimal_order in DEFAULT_ORDERS
+    assert r.optimal_order in FRACTIONAL_ORDERS
     assert r.accountant == "rdp-subsampled-gaussian"
     assert r.as_dict()["steps"] == 1000
 
@@ -123,3 +126,65 @@ def test_cks_conversion_tighter_than_mironov():
     cks, _ = rdp_to_epsilon(orders, rdps, 1e-5)
     mironov = min(r + math.log(1 / 1e-5) / (a - 1) for a, r in zip(orders, rdps, strict=True))
     assert 0 < cks <= mironov
+
+
+# ── Fractional-order accountant (v0.15.0) ───────────────────────────────────
+
+
+def test_log_erfc_matches_stdlib_below_threshold():
+    for x in (-3.0, -1.0, 0.0, 0.5, 1.0, 3.0, 10.0, 19.0):
+        assert _log_erfc(x) == pytest.approx(math.log(math.erfc(x)), abs=1e-9)
+
+
+def test_log_erfc_asymptotic_matches_stdlib_at_large_x():
+    # The asymptotic branch (x >= 20) must agree with math.erfc where erfc is still
+    # representable (it underflows to 0 only past ~26), evaluated at the *same* x.
+    for x in (20.0, 22.0, 24.0, 26.0):
+        assert _log_erfc(x) == pytest.approx(math.log(math.erfc(x)), abs=1e-9)
+
+
+def test_frac_converges_to_integer_closed_form():
+    # The fractional series equals the integer binomial bound in the limit alpha->int;
+    # the residual scales linearly with the offset (pure derivative term, not error).
+    for sigma in (0.5, 1.1, 2.0):
+        for q in (0.01, 0.1):
+            for a in (3, 8, 32):
+                base = rdp_subsampled_gaussian(a, q, sigma)
+                near = rdp_subsampled_gaussian_real(a + 1e-6, q, sigma)
+                assert near == pytest.approx(base, abs=1e-4)
+
+
+def test_frac_rdp_monotone_in_alpha():
+    prev = -1.0
+    for alpha in FRACTIONAL_ORDERS:
+        cur = rdp_subsampled_gaussian_real(alpha, 0.01, 1.1)
+        assert cur >= prev - 1e-12
+        prev = cur
+
+
+def test_fractional_grid_never_looser_than_integer_grid():
+    # Adding fractional orders can only lower the RDP->epsilon minimum.
+    for nm, q, steps, delta in [
+        (1.1, 0.01, 1000, 1e-5),
+        (0.6, 0.2, 500, 1e-5),
+        (2.0, 0.05, 3000, 1e-6),
+        (0.5, 0.5, 200, 1e-5),
+    ]:
+        eps_frac = dpsgd_epsilon(
+            noise_multiplier=nm, sample_rate=q, steps=steps, delta=delta
+        ).epsilon
+        eps_int = dpsgd_epsilon(
+            noise_multiplier=nm, sample_rate=q, steps=steps, delta=delta, orders=DEFAULT_ORDERS
+        ).epsilon
+        assert eps_frac <= eps_int + 1e-9
+
+
+def test_fractional_order_can_strictly_win():
+    # In a high-sampling-rate regime the optimum is a sub-2 fractional order, and the
+    # fractional epsilon is materially tighter than the integer-only bound.
+    r = dpsgd_epsilon(noise_multiplier=0.6, sample_rate=0.2, steps=500, delta=1e-5)
+    eps_int = dpsgd_epsilon(
+        noise_multiplier=0.6, sample_rate=0.2, steps=500, delta=1e-5, orders=DEFAULT_ORDERS
+    ).epsilon
+    assert not float(r.optimal_order).is_integer()
+    assert r.epsilon < eps_int

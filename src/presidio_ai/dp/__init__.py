@@ -12,10 +12,12 @@ from __future__ import annotations
 
 from presidio_ai.dp.accountant import (
     DEFAULT_ORDERS,
+    FRACTIONAL_ORDERS,
     DPResult,
     dpsgd_epsilon,
     rdp_gaussian,
     rdp_subsampled_gaussian,
+    rdp_subsampled_gaussian_real,
     rdp_to_epsilon,
 )
 from presidio_ai.dp.authorization import (
@@ -38,10 +40,12 @@ from presidio_ai.dp.trainer import (
 
 __all__ = [
     "DEFAULT_ORDERS",
+    "FRACTIONAL_ORDERS",
     "DPResult",
     "dpsgd_epsilon",
     "rdp_gaussian",
     "rdp_subsampled_gaussian",
+    "rdp_subsampled_gaussian_real",
     "rdp_to_epsilon",
     "EpsilonBudget",
     "BudgetExceeded",
