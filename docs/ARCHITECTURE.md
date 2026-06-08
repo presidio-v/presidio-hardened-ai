@@ -121,6 +121,10 @@ then be sealed with `iga export` / `iga verify-bundle`.
 - **presidio-hardened-x402** — published payment-security middleware (PII redaction, spend
   policy, replay, MPA, screening).
 
+## Decisions
+
+- [ADR-0001](adr/0001-multiparty-secure-aggregation.md) — multi-party consortium training via secure aggregation (P4, Proposed).
+
 ## SDLC
 
 Developed under the family-wide Presidio SDLC:
