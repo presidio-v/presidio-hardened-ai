@@ -68,8 +68,9 @@ CLI command: `pai`
 | v0.7.0 | — | Ed25519 public-key evidence signing + `pai keygen` (`[crypto]` extra); HMAC default | Shipped |
 | v0.8.0 | — | Ed25519 becomes the **default** signing algorithm (coordinated with ikigov v0.14.0 verification) | Shipped |
 | v0.9.0 | P3 | FL governance: per-silo ε-budget charging + signed D4 evidence in `pai fl-train` (`--charge`) | Shipped |
-| v0.10.0 | P2 | Tighter RDP→DP conversion (Canonne-Kamath-Steinke 2020); strictly ≤ the prior bound | **Current** |
-| — | P4 | Multi-party consortium (SMPC) — pull-only | Deferred |
+| v0.10.0 | P2 | Tighter RDP→DP conversion (Canonne-Kamath-Steinke 2020); strictly ≤ the prior bound | Shipped |
+| v0.11.0 | P4 | Secure-aggregation core: additive masking + Shamir dropout recovery (`fl.secure_agg`) — ADR-0001 | **Current** |
+| — | P4 | Consortium network/transport (`[mpc]` lane), field-quantised arithmetic, per-round DP/MPA/evidence | Deferred |
 
 ---
 
@@ -514,6 +515,40 @@ conversion), so the torch-lane cross-check ratio moves closer to 1.
 ### Future
 Fractional Rényi orders for the subsampled-Gaussian bound (a further, smaller tightening)
 remain deferred — the integer-order bound + CKS conversion is the verified baseline.
+
+---
+
+## v0.11.0 — Secure-Aggregation Core (P4 v1, ADR-0001)
+
+**Decision (ADR-0001, Accepted 2026-06-08).** The consortium computation is a *sum*
+(FedAvg), so P4 uses **secure aggregation by additive masking** (Bonawitz et al., 2017),
+not general-purpose MPC. The coordinator recovers only the aggregate; no individual party
+update is ever revealed, at symmetric-crypto cost, and the scheme *layers* with per-client
+DP for the same defence-in-depth used elsewhere.
+
+**Shipped this version — the pure-Python, fully-tested core** (`presidio_ai.fl.secure_agg`):
+
+- **Antisymmetric pairwise masks.** Each pair shares a seed; party *i* adds `+PRG(s_ij)`
+  when `i<j` and `-PRG(s_ij)` when `i>j`, so pairwise masks cancel in the sum.
+- **Self-masks.** A private `PRG(b_i)` per party closes the window where a coordinator who
+  learned a *dropped* party's pairwise seeds could strip a survivor's input.
+- **Dropout recovery via Shamir t-of-n.** Self and pairwise seeds are secret-shared; from
+  any `t` survivor shares the coordinator reconstructs survivors' self-seeds (to remove
+  self-masks) and dropped parties' pairwise seeds (to remove masks that no longer cancel).
+  Fewer than `t` survivors **fails closed**.
+- **Verified** to reproduce plaintext FedAvg with and without dropout (ADR action items
+  3 & 6); seeds drawn from a CSPRNG by default (`secrets.SystemRandom`).
+
+**Threat model (v1).** Honest-but-curious coordinator + ≤`t` colluding parties. Malicious
+security is explicitly out of scope (revisit via commitments / verifiable secret sharing,
+or threshold HE — ADR-0001 Option C).
+
+**Deferred to the `[mpc]` lane** (network, not core): authenticated pairwise key agreement
+(seeds are modelled in-process today), the HTTP/transport layer in a dedicated CI lane
+(mirroring `[torch]`), field-quantised exact arithmetic (removes float-cancellation
+tolerance and overflow), and per-round composition — per-client DP on inputs, n-of-m MPA
+to authorize a round, and one signed `D4` evidence + ledger entry per consortium round
+(aggregate only).
 
 ---
 

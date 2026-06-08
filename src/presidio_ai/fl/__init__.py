@@ -16,6 +16,11 @@ from presidio_ai.fl.coordinator import (
     federated_train,
 )
 from presidio_ai.fl.governance import SiloGovernance, charge_federated
+from presidio_ai.fl.secure_agg import (
+    SecureAggregationSession,
+    shamir_reconstruct,
+    shamir_split,
+)
 
 __all__ = [
     "Aggregator",
@@ -26,4 +31,7 @@ __all__ = [
     "federated_train",
     "SiloGovernance",
     "charge_federated",
+    "SecureAggregationSession",
+    "shamir_split",
+    "shamir_reconstruct",
 ]

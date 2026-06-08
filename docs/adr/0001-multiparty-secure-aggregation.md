@@ -1,9 +1,11 @@
 # ADR-0001: Multi-party consortium training via secure aggregation
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-08
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — the deferred "consortium" prize
+
+> **Implementation status (v0.11.0).** Accepted and started. The pure-Python secure-aggregation **core** — antisymmetric pairwise masks, self-masks, and Shamir t-of-n dropout recovery — ships in `presidio_ai.fl.secure_agg`, verified to reproduce plaintext FedAvg with and without dropout (action items 3 & 6). Still deferred to the `[mpc]` lane: authenticated pairwise key agreement (seeds modelled in-process today), the network transport, field-quantised exact arithmetic, and DP/MPA/evidence composition per round (items 2, 4, 5).
 
 ## Context
 
@@ -154,11 +156,14 @@ in the suite.
        parties; malicious-secure out of scope) into `PRESIDIO-REQ.md`.
 2. [ ] Define the protocol: authenticated pairwise key agreement → per-pair PRG masks →
        Shamir secret-sharing of seeds for dropout recovery (Bonawitz §4).
-3. [ ] Implement the **pure-Python core** (mask generation, share/reconstruct, dropout
+3. [x] Implement the **pure-Python core** (mask generation, share/reconstruct, dropout
        recovery) with CSPRNG; unit-test mask cancellation and t-of-n recovery.
+       **Done in v0.11.0** — `presidio_ai.fl.secure_agg` (`SecureAggregationSession`,
+       `shamir_split`/`shamir_reconstruct`); 11 tests.
 4. [ ] Wire the network/transport layer behind a `[mpc]` extra; integration-test in a
        dedicated CI lane (as the Opacus `[torch]` lane).
 5. [ ] Compose: per-client DP on inputs; n-of-m MPA to authorize a consortium round;
        one signed `D4` evidence + ledger entry per round (aggregate only).
-6. [ ] Cross-check the protocol's aggregate equals plaintext FedAvg (and the v0.5.0
-       reference) within float tolerance.
+6. [x] Cross-check the protocol's aggregate equals plaintext FedAvg (and the v0.5.0
+       reference) within float tolerance. **Done in v0.11.0** (no-dropout aggregate
+       == plain sum; dropout aggregate == survivor sum).

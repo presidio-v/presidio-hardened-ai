@@ -123,7 +123,7 @@ then be sealed with `iga export` / `iga verify-bundle`.
 
 ## Decisions
 
-- [ADR-0001](adr/0001-multiparty-secure-aggregation.md) — multi-party consortium training via secure aggregation (P4, Proposed).
+- [ADR-0001](adr/0001-multiparty-secure-aggregation.md) — multi-party consortium training via secure aggregation (P4, **Accepted**; v0.11.0 ships the pure-Python core in `fl.secure_agg`).
 
 ## SDLC
 
