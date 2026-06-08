@@ -8,6 +8,8 @@
 **Amends:** [ADR-0002](0002-malicious-security-hardening.md) — adds *input honesty* to the
 *protocol honesty* ADR-0002 secured; both build on the [ADR-0001](0001-multiparty-secure-aggregation.md)
 secure-aggregation core.
+**Amended by:** [ADR-0004](0004-ristretto-bulletproofs-backend.md) — the deferred Ristretto255
++ Bulletproofs *performance* backend for these proofs (same guarantee).
 
 > **Implementation status (v0.19.0–v0.20.0).** Accepted; v1 built. `fl.zk` ships a
 > transparent Pedersen bit-decomposition **range proof** + an **L∞ bounded-norm vector
