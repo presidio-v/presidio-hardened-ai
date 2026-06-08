@@ -90,6 +90,8 @@ class DPTrainer(Protocol):
         config: DPSGDConfig,
         *,
         seed: int = 0,
+        init_weights: Sequence[float] | None = None,
+        init_bias: float = 0.0,
     ) -> TrainedModel: ...
 
 
@@ -132,6 +134,8 @@ class ReferenceDPSGDTrainer:
         config: DPSGDConfig,
         *,
         seed: int = 0,
+        init_weights: Sequence[float] | None = None,
+        init_bias: float = 0.0,
     ) -> TrainedModel:
         n = len(features)
         if n == 0 or len(labels) != n:
@@ -144,8 +148,10 @@ class ReferenceDPSGDTrainer:
         # assumes good randomness — a production noise source must be a CSPRNG
         # (e.g. numpy Generator / os.urandom); the Opacus backend uses torch's.
         rng = random.Random(seed)  # noqa: S311 - reference trainer; see note
-        w = [0.0] * d
-        b = 0.0
+        if init_weights is not None and len(init_weights) != d:
+            raise ValueError("init_weights length must match feature dimension")
+        w = [0.0] * d if init_weights is None else [float(v) for v in init_weights]
+        b = float(init_bias)
         sigma, C, lr, q = (
             config.noise_multiplier,
             config.clip_norm,
