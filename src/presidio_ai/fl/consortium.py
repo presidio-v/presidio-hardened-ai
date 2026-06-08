@@ -41,8 +41,10 @@ from presidio_ai.evidence import (
     consortium_commitment,
     export_evidence,
 )
+from presidio_ai.fl.commit import MODP2048_GROUP, SchnorrGroup
+from presidio_ai.fl.god import deal_input, god_aggregate
 from presidio_ai.fl.proof_backend import ProofBackend, get_backend
-from presidio_ai.fl.secure_agg import PRIME, SecureAggregationSession, dequantize
+from presidio_ai.fl.secure_agg import DEFAULT_FRAC_BITS, PRIME, SecureAggregationSession, dequantize
 from presidio_ai.fl.zk import ProofError
 from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ledger import Ledger
@@ -607,3 +609,168 @@ def run_consortium_round_with_retry(
             continue
         return RetryRoundResult(result=result, excluded=excluded, attempts=attempt)
     raise ConsortiumError(f"retry budget exhausted after excluding {excluded}")
+
+
+# ── Guaranteed-output-delivery round (ADR-0006, Option A) ───────────────────
+
+
+@dataclass(frozen=True)
+class GODConsortiumResult:
+    round_id: str
+    aggregate: list[float]
+    aggregate_field: list[int]
+    included: list[Hashable]
+    excluded: list[Hashable]
+    max_epsilon: float
+    delta: float
+    per_silo_charge: dict[str, ChargeResult]
+    approvers: list[str]
+    ledger_seq: int
+    evidence_path: Path | None
+
+
+def run_god_consortium_round(
+    *,
+    round_id: str,
+    updates: Mapping[Hashable, Sequence[float]],
+    dp_results: Mapping[Hashable, DPResult],
+    threshold: int,
+    ledger: Ledger,
+    frac_bits: int = DEFAULT_FRAC_BITS,
+    group: SchnorrGroup = MODP2048_GROUP,
+    budgets: Mapping[Hashable, EpsilonBudget] | None = None,
+    policy: MPAPolicy | None = None,
+    approvals: Mapping[str, str] | None = None,
+    approver_keys: Mapping[str, str] | None = None,
+    signing_key: bytes | str | None = None,
+    signer: str = "presidio-hardened-ai",
+    algorithm: str = "ed25519",
+    evidence_path: str | Path | None = None,
+    holder_overrides: Mapping[Hashable, Mapping[int, int]] | None = None,
+    rng=None,
+) -> GODConsortiumResult:
+    """Run a guaranteed-output-delivery round (honest majority ``n ≥ 2*threshold-1``).
+
+    Each party VSS-shares its DP-noised update; the sum is **robustly reconstructed** so a
+    misbehaving minority (bad dealers excluded, bad holders discarded) cannot halt the round
+    and there is no coordinator single-point-of-failure. Then the usual governance applies:
+    n-of-m MPA on the worst-case ε, per-silo DP charges, and one signed ``D4`` (aggregate
+    only). ``threshold`` is the reconstruction quorum (``t+1``); honest majority means at
+    least ``threshold`` honest parties.
+    """
+    if not round_id:
+        raise ConsortiumError("round_id must be non-empty")
+    parties = list(updates)
+    if len(parties) < threshold:
+        raise ConsortiumError(f"need >= {threshold} parties, got {len(parties)}")
+    missing_dp = [p for p in parties if p not in dp_results]
+    if missing_dp:
+        raise ConsortiumError(f"missing DP results for: {missing_dp}")
+    deltas = {dp_results[p].delta for p in parties}
+    if len(deltas) != 1:
+        raise ConsortiumError("all parties must share one delta for the round")
+    delta = deltas.pop()
+
+    scale = 1 << frac_bits
+    n = len(parties)
+    dealt = {
+        p: deal_input(
+            [round(v * scale) for v in updates[p]],
+            threshold=threshold,
+            n_holders=n,
+            group=group,
+            rng=rng,
+        )
+        for p in parties
+    }
+    # Robust reconstruction delivers the sum despite a misbehaving minority (no coordinator).
+    god = god_aggregate(
+        dealt, threshold=threshold, n_holders=n, group=group, holder_overrides=holder_overrides
+    )
+    q = group.q
+    aggregate = [(v - q if v > q // 2 else v) / scale for v in god.aggregate_field]
+
+    # Governance over the *delivered* (included) set.
+    gating = max((dp_results[p] for p in god.included), key=lambda r: r.epsilon)
+    max_epsilon = gating.epsilon
+    approvers: list[str] = []
+    if requires_authorization(policy, max_epsilon):
+        _req_hash, approved = authorize(
+            gating,
+            job_id=f"consortium/{round_id}",
+            policy=policy,
+            approvals=approvals or {},
+            approver_keys=approver_keys or {},
+        )
+        approvers = list(approved)
+        ledger.append(
+            AUTHORIZED_EVENT,
+            {
+                "job_id": f"consortium/{round_id}",
+                "epsilon": max_epsilon,
+                "threshold": policy.threshold,
+                "approvers": approvers,
+                "request_hash": _req_hash,
+            },
+        )
+
+    per_silo_charge: dict[str, ChargeResult] = {}
+    if budgets is not None:
+        for p in god.included:
+            budget = budgets.get(p)
+            if budget is not None:
+                per_silo_charge[str(p)] = budget.charge(
+                    dp_results[p], job_id=f"consortium/{round_id}/{p}"
+                )
+
+    commitment = consortium_commitment(
+        round_id=round_id,
+        aggregate_field=god.aggregate_field,
+        max_epsilon=max_epsilon,
+        delta=delta,
+        n_parties=n,
+        n_survivors=len(god.included),
+    )
+    entry = ledger.append(
+        CONSORTIUM_EVENT,
+        {
+            "round_id": round_id,
+            "mode": "god",
+            "aggregate_sha256": commitment["aggregate_sha256"],
+            "max_epsilon": max_epsilon,
+            "delta": delta,
+            "n_parties": n,
+            "n_included": len(god.included),
+            "n_excluded": len(god.excluded),
+            "excluded": [str(p) for p in god.excluded],
+            "honest_majority_threshold": threshold,
+            "per_silo_epsilon": {str(p): dp_results[p].epsilon for p in god.included},
+        },
+    )
+
+    out_path: Path | None = None
+    if evidence_path is not None:
+        if signing_key is None:
+            raise ConsortiumError("evidence_path requires a signing_key")
+        refs = build_consortium_evidence(
+            commitment,
+            signing_key=signing_key,
+            signer=signer,
+            round_seq=entry.seq,
+            algorithm=algorithm,
+        )
+        out_path = export_evidence(refs, evidence_path, use_case=f"consortium/{round_id}")
+
+    return GODConsortiumResult(
+        round_id=round_id,
+        aggregate=aggregate,
+        aggregate_field=god.aggregate_field,
+        included=god.included,
+        excluded=god.excluded,
+        max_epsilon=max_epsilon,
+        delta=delta,
+        per_silo_charge=per_silo_charge,
+        approvers=approvers,
+        ledger_seq=entry.seq,
+        evidence_path=out_path,
+    )
