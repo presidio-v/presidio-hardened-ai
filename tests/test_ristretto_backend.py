@@ -64,3 +64,22 @@ def test_decision_equivalence_bound_binding(backend_factory):
     assert b.verify_bounded(commits, proof, bound=16) is True
     # a proof for bound=16 must not satisfy a stricter requested bound
     assert b.verify_bounded(commits, proof, bound=8) is False
+
+
+@pytest.mark.parametrize("backend_factory", [RistrettoBulletproofsBackend, lambda: _MODP])
+def test_l2_decision_equivalence_in_bound(backend_factory):
+    b = backend_factory()
+    values = [-30, 10, 20]  # ||.||2^2 = 1400 <= 2500
+    blindings = [b.random_blinding() for _ in values]
+    commits = [b.commit(v, r) for v, r in zip(values, blindings, strict=True)]
+    proof = b.prove_l2_bounded(values, blindings, bound=50)
+    assert b.verify_l2_bounded(commits, proof, bound=50) is True
+
+
+@pytest.mark.parametrize("backend_factory", [RistrettoBulletproofsBackend, lambda: _MODP])
+def test_l2_decision_equivalence_over_l2_rejected(backend_factory):
+    b = backend_factory()
+    values = [50, 50, 50]  # each within L-inf 50, but ||.||2^2 = 7500 > 2500
+    blindings = [b.random_blinding() for _ in values]
+    with pytest.raises(Exception):  # noqa: B017 - prover refuses an out-of-L2 witness
+        b.prove_l2_bounded(values, blindings, bound=50)

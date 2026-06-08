@@ -166,6 +166,24 @@ fn verify_bounded(
         .is_ok())
 }
 
+
+#[pyfunction]
+fn point_mul(py: Python<'_>, point: &[u8], scalar_le: &[u8]) -> PyResult<PyObject> {
+    let p = point_from_bytes(point)?;
+    let s = scalar_from_le(scalar_le)?;
+    Ok(PyBytes::new_bound(py, (p * s).compress().as_bytes()).into())
+}
+
+#[pyfunction]
+fn pedersen_commit_scalar(py: Python<'_>, value_le: &[u8], blinding_le: &[u8]) -> PyResult<PyObject> {
+    // value*B + blinding*B_blinding, with both as full scalars (for Sigma-protocol terms
+    // whose exponents are challenge-sized, not i64).
+    let pc = PedersenGens::default();
+    let v = scalar_from_le(value_le)?;
+    let r = scalar_from_le(blinding_le)?;
+    Ok(PyBytes::new_bound(py, (v * pc.B + r * pc.B_blinding).compress().as_bytes()).into())
+}
+
 #[pymodule]
 fn presidio_ai_zk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__backend_name__", "ristretto255-bulletproofs")?;
@@ -174,5 +192,7 @@ fn presidio_ai_zk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pedersen_sum, m)?)?;
     m.add_function(wrap_pyfunction!(prove_bounded, m)?)?;
     m.add_function(wrap_pyfunction!(verify_bounded, m)?)?;
+    m.add_function(wrap_pyfunction!(point_mul, m)?)?;
+    m.add_function(wrap_pyfunction!(pedersen_commit_scalar, m)?)?;
     Ok(())
 }
