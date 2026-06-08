@@ -94,6 +94,16 @@ changing the `EvidenceRef` shape, which matches the
   reference uses a seedable PRNG — a production deployment uses pairwise-exchanged mask
   seeds and a CSPRNG.
 
+
+### DP randomness & Opacus backend (v0.6.0)
+
+- **CSPRNG noise option.** The reference trainer's `secure_rng=True` draws DP noise from an
+  `os.urandom`-backed CSPRNG (`random.SystemRandom`), closing the earlier seedable-PRNG
+  caveat; the default remains a seeded PRNG for reproducible testing only.
+- **Opacus backend** uses `PrivacyEngine(secure_mode=...)` and is verified in a dedicated
+  torch CI lane that cross-validates Opacus' privacy accountant against this suite's
+  `dpsgd_epsilon` — so the accounting cannot silently diverge between backends.
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:

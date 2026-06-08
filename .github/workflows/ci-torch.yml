@@ -1,0 +1,38 @@
+name: Torch CI
+
+# Heavier lane for the optional Opacus DP-SGD backend ([torch] extra). Kept separate
+# from the default CI so the dependency-light core stays fast; this verifies the torch
+# adapter and cross-validates Opacus' accountant against presidio_ai.dp.accountant.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  torch:
+    name: pytest [torch] (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install with the torch extra
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[dev,torch]"
+
+      - name: Lint (torch-only tests)
+        run: |
+          ruff check tests/test_opacus.py
+          ruff format --check tests/test_opacus.py
+
+      - name: Run torch backend tests
+        run: pytest tests/test_opacus.py -q

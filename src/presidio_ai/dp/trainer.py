@@ -92,6 +92,7 @@ class DPTrainer(Protocol):
         seed: int = 0,
         init_weights: Sequence[float] | None = None,
         init_bias: float = 0.0,
+        secure_rng: bool = False,
     ) -> TrainedModel: ...
 
 
@@ -136,6 +137,7 @@ class ReferenceDPSGDTrainer:
         seed: int = 0,
         init_weights: Sequence[float] | None = None,
         init_bias: float = 0.0,
+        secure_rng: bool = False,
     ) -> TrainedModel:
         n = len(features)
         if n == 0 or len(labels) != n:
@@ -144,10 +146,12 @@ class ReferenceDPSGDTrainer:
         if any(len(x) != d for x in features):
             raise ValueError("all feature vectors must have the same length")
 
-        # Seedable PRNG for reproducible reference runs. NOTE: DP's guarantee
-        # assumes good randomness — a production noise source must be a CSPRNG
-        # (e.g. numpy Generator / os.urandom); the Opacus backend uses torch's.
-        rng = random.Random(seed)  # noqa: S311 - reference trainer; see note
+        # Noise/sampling randomness. ``secure_rng`` uses a CSPRNG (os.urandom-backed)
+        # for production-grade DP noise — at the cost of reproducibility; the default
+        # seedable PRNG keeps reference runs deterministic for testing.
+        rng: random.Random = (
+            random.SystemRandom() if secure_rng else random.Random(seed)  # noqa: S311 - reproducible reference noise; see note
+        )
         if init_weights is not None and len(init_weights) != d:
             raise ValueError("init_weights length must match feature dimension")
         w = [0.0] * d if init_weights is None else [float(v) for v in init_weights]
@@ -189,14 +193,102 @@ class ReferenceDPSGDTrainer:
         return TrainedModel(weights=w, bias=b, result=result, accuracy=correct / n, n_features=d)
 
 
+class OpacusDPSGDTrainer:
+    """Production DP-SGD on real models via Opacus (behind the ``[torch]`` extra).
+
+    Trains an ``nn.Linear`` logistic model with Opacus' ``PrivacyEngine`` using the
+    same ``DPSGDConfig`` (noise multiplier σ, clip norm C, sampling rate q, steps).
+    The returned ``TrainedModel.result`` uses this suite's accountant so the evidence
+    epsilon is consistent across backends; the torch CI lane additionally cross-checks
+    Opacus' own accountant against it. Imports torch lazily — constructing it without
+    the extra raises a clear ImportError.
+    """
+
+    def __init__(self) -> None:
+        try:
+            import opacus  # noqa: F401
+            import torch  # noqa: F401
+        except ImportError as exc:  # pragma: no cover - exercised only without the extra
+            raise ImportError(
+                "the Opacus backend needs the optional extra: pip install "
+                "'presidio-hardened-ai[torch]'"
+            ) from exc
+
+    def train(  # pragma: no cover - exercised in the torch CI lane (tests/test_opacus.py)
+        self,
+        features: Sequence[Sequence[float]],
+        labels: Sequence[int],
+        config: DPSGDConfig,
+        *,
+        seed: int = 0,
+        init_weights: Sequence[float] | None = None,
+        init_bias: float = 0.0,
+        secure_rng: bool = False,
+    ) -> TrainedModel:
+        import torch
+        from opacus import PrivacyEngine
+        from torch import nn
+        from torch.utils.data import DataLoader, TensorDataset
+
+        n = len(features)
+        if n == 0 or len(labels) != n:
+            raise ValueError("features and labels must be non-empty and equal length")
+        d = len(features[0])
+        torch.manual_seed(seed)
+
+        x = torch.tensor([list(row) for row in features], dtype=torch.float32)
+        y = torch.tensor([[float(v)] for v in labels], dtype=torch.float32)
+        model = nn.Linear(d, 1)
+        with torch.no_grad():
+            if init_weights is not None:
+                model.weight.copy_(torch.tensor([list(init_weights)], dtype=torch.float32))
+            model.bias.copy_(torch.tensor([float(init_bias)], dtype=torch.float32))
+
+        optimizer = torch.optim.SGD(model.parameters(), lr=config.learning_rate)
+        batch_size = max(1, round(config.sample_rate * n))
+        loader = DataLoader(TensorDataset(x, y), batch_size=batch_size, shuffle=True)
+
+        engine = PrivacyEngine(secure_mode=secure_rng)
+        model, optimizer, loader = engine.make_private(
+            module=model,
+            optimizer=optimizer,
+            data_loader=loader,
+            noise_multiplier=config.noise_multiplier,
+            max_grad_norm=config.clip_norm,
+        )
+        loss_fn = nn.BCEWithLogitsLoss()
+        steps_done = 0
+        while steps_done < config.steps:
+            for xb, yb in loader:
+                optimizer.zero_grad()
+                loss_fn(model(xb), yb).backward()
+                optimizer.step()
+                steps_done += 1
+                if steps_done >= config.steps:
+                    break
+
+        params = list(model.parameters())
+        weights = params[0].detach().reshape(-1).tolist()
+        bias = float(params[1].detach().reshape(-1)[0])
+        result = dpsgd_epsilon(
+            noise_multiplier=config.noise_multiplier,
+            sample_rate=config.sample_rate,
+            steps=config.steps,
+            delta=config.delta,
+        )
+        with torch.no_grad():
+            preds = (torch.sigmoid(model(x)) >= 0.5).float()
+            accuracy = float((preds == y).float().mean())
+        return TrainedModel(
+            weights=weights, bias=bias, result=result, accuracy=accuracy, n_features=d
+        )
+
+
 def make_trainer(backend: str = "reference") -> DPTrainer:
-    """Return a DP-SGD trainer. ``reference`` (stdlib) is the verifiable default."""
+    """Return a DP-SGD trainer. ``reference`` (stdlib) is the verifiable default;
+    ``opacus`` is the production backend behind the ``[torch]`` extra."""
     if backend == "reference":
         return ReferenceDPSGDTrainer()
-    if backend == "opacus":  # pragma: no cover - requires the [torch] extra
-        raise NotImplementedError(
-            "the Opacus DP-SGD adapter ships in a later v0.4.x behind the [torch] extra; "
-            "it will implement DPTrainer and cross-validate its accounting against "
-            "presidio_ai.dp.accountant. Use backend='reference' for now."
-        )
+    if backend == "opacus":
+        return OpacusDPSGDTrainer()
     raise ValueError(f"unknown trainer backend: {backend!r}")
