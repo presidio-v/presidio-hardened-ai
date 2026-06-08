@@ -213,5 +213,5 @@ ADR puts on the table.
        `(ε, δ)` is enforced, and surface "sensitivity: proven" in the signed `D4` evidence.
 7. [ ] Benchmark prover/verifier at realistic model dimension with proof **aggregation +
        batched verification**; document the cost and the `[zk]` extra / dependency decision.
-8. [ ] Defer to follow-up ADRs: the **L2** bound (Option B), a SNARK route (Option C) if
-       size/verify dominate, and **semantic robustness** (in-norm backdoors).
+8. [~] Defer to follow-up ADRs: the **L2** bound (Option B) **→ ADR-0005 (Proposed)**; a SNARK
+       route (Option C) if size/verify dominate; and **semantic robustness** (in-norm backdoors).
