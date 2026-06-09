@@ -13,9 +13,8 @@ sum aggregation and the ADR-0002 Feldman VSS.
 > ships exclude-and-retry liveness (`run_consortium_round_with_retry`); v0.26.0 the robust
 > reconstruction (`commit.robust_reconstruct`); v0.27.0 the shared-input GOD aggregation
 > (`fl.god`) + `run_god_consortium_round` (items 1–3, 5–7). **Remaining (item 4):** binding
-> the bounded-norm ZK gate to the *shared* inputs needs a cross-commitment equality proof —
-> the GOD aggregation and the bounded-norm gate both exist; wiring them on the GOD path is
-> the open sub-item. All pure-Python and verified in the default gate.
+> the bounded-norm ZK gate to the *shared* inputs is **done v0.28.0** via a commitment-
+> equality proof. All pure-Python and verified in the default gate.
 
 ## Context
 
@@ -187,10 +186,10 @@ lands.
 3. [x] Implement **robust reconstruction** (verify shares against Feldman commitments, discard
        invalid, Lagrange-interpolate from `t+1`); pure-Python core + tests (≤`t` bad/silent
        shares → correct sum; `> t` → safe abort).
-4. [~] Build the **shared-input aggregation** path: parties VSS-share DP-noised, bounded-norm-
+4. [x] Build the **shared-input aggregation** path: parties VSS-share DP-noised, bounded-norm-
        proven updates; shares added locally; sum robustly reconstructed by any honest quorum
-       (no coordinator) **— done v0.27.0**. Composing the bounded-norm ZK gate on the shared
-       inputs (a cross-commitment equality proof) is the remaining sub-item.
+       (no coordinator) **— done v0.27.0**. Bounded-norm ZK on the shared inputs via a
+       commitment-equality proof **— done v0.28.0**.
 5. [x] Decentralised **agreement on the valid-share set** anchored on the signed survivor-set +
        ledger; one signed `D4` per round (aggregate only), recording the GOD mode + honest-
        majority parameters.

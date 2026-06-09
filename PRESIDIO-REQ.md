@@ -85,8 +85,10 @@ CLI command: `pai`
 | v0.24.0 | P4 | L2 on the Ristretto native backend (square Σ-proof over points + native range) | Shipped |
 | v0.25.0 | P4 | GOD interim: exclude-and-retry liveness (`run_consortium_round_with_retry`) — ADR-0006 D | Shipped |
 | v0.26.0 | P4 | Robust reconstruction (`robust_reconstruct`) — verify/discard/interpolate | Shipped |
-| v0.27.0 | P4 | GOD aggregation + round (`fl.god`, `run_god_consortium_round`) — honest-majority | **Current** |
-| — | P4 | Bounded-norm↔shared-input equality binding; whole-consortium proof aggregation | Deferred |
+| v0.27.0 | P4 | GOD aggregation + round (`fl.god`, `run_god_consortium_round`) — honest-majority | Shipped |
+| v0.28.0 | P4 | Bounded-norm gate on the GOD path via commitment-equality binding (ADR-0006 item 4) | Shipped |
+| v0.29.0 | P4 | Whole-consortium bounded-norm proof aggregation (cross-bound batch / native Bulletproof) | **Current** |
+| — | — | First `ci-zk`/`ci-mpc`/`ci-torch` runs: compile native lanes + benchmarks | Deferred |
 
 ---
 
@@ -778,6 +780,27 @@ general GOD-MPC specialised to linear functions, reusing the suite's Feldman VSS
 (ADR-0006 item 4):** binding the bounded-norm ZK gate to the *shared* inputs needs a small
 cross-commitment equality proof. **Deferred:** whole-consortium proof aggregation; general
 GOD-MPC for non-linear aggregates; verifiable threshold HE.
+
+---
+
+## v0.28.0–v0.29.0 — GOD Bounded-Norm Binding + Whole-Consortium Aggregation (P4)
+
+- **v0.28.0 — bounded-norm on the GOD path (ADR-0006 item 4, closed).** The GOD aggregation
+  shares a value whose Feldman commitment is `C_0 = g^s` (binding, not hiding), so the
+  bounded-norm ZK gate (over a *hiding* Pedersen `g^s h^r`) is bound to it by a
+  **commitment-equality Schnorr proof**: `C_ped · C_fel^{-1} = h^r` is a pure power of `h`
+  iff the `g`-exponents match. `run_god_consortium_round(clip_bound=/l2_bound=)` now gates each
+  party's *shared* input on the proven norm and excludes a party that fails the norm or the
+  binding — GOD still delivers over the honest set.
+- **v0.29.0 — whole-consortium aggregation.** One round-level bounded-norm proof for every
+  party. A transcript `domain` hashing **all** parties' commitments cross-binds the batch
+  (tampering any one commitment fails the whole proof). On the MODP path this is a cross-bound
+  collection (verified); on the native Ristretto path it is a **single Bulletproof over the
+  concatenated consortium vector** (true `O(log)` aggregation via `prove_multiple`).
+
+This closes the last two open P4 sub-items. The only remaining work is operational: the first
+`ci-zk` / `ci-mpc` / `ci-torch` runs to compile the native lanes and produce the benchmark
+numbers (the crypto and its decision-equivalence tests are in place).
 
 ---
 

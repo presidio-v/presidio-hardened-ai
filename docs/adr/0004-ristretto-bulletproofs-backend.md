@@ -182,8 +182,9 @@ accept, out-of-bound / tampered → reject), not that they produce the same byte
 **Revisit when:**
 - A **vetted, dependency-free** (pure-Python or wasm) Bulletproofs/Ristretto option appears →
   reconsider dropping the Rust requirement.
-- **Whole-consortium proof aggregation** (one proof for all parties) is needed → extend the
-  backend's aggregation surface.
+- **Whole-consortium proof aggregation** (one proof for all parties) — **done v0.29.0**:
+  `prove_bounded_batch` (cross-bound on MODP; one Bulletproof over the concatenated vector on
+  the native backend).
 - The **L2** bound ADR lands → it must use this backend (Bulletproofs inner-product), not the
   MODP fallback, for performance.
 
