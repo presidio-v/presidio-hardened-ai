@@ -415,3 +415,48 @@ def verify_l2_bounded(
     # establishes S ≤ bound².
     c_diff = (pow(g, m % q, p) * pow(s_commit, p - 2, p)) % p
     return verify_range(c_diff, proof.range_diff, group=group)
+
+
+# --- Cross-commitment equality (ADR-0006 item 4): bind a Pedersen commitment to a
+# Feldman commitment of the same value, so a bounded-norm proof over the Pedersen
+# commitment constrains the value that was VSS-shared for GOD aggregation. -----------
+
+
+@dataclass(frozen=True)
+class EqualityProof:
+    """A Schnorr proof that ``c_ped`` and ``c_fel`` commit the same value."""
+
+    t: int
+    z: int
+
+
+def prove_commitment_equality(
+    c_ped: int,
+    c_fel: int,
+    blinding: int,
+    *,
+    group: SchnorrGroup,
+    prefix: int,
+    rng=None,
+) -> EqualityProof:
+    """Prove ``c_ped = g^s h^blinding`` and ``c_fel = g^s`` commit the same ``s``.
+
+    Their quotient ``c_ped · c_fel^{-1} = h^blinding`` is a pure power of ``h`` iff the
+    ``g``-exponents match; this is a Schnorr proof of knowledge of ``blinding`` for it.
+    """
+    p, q, h = group.p, group.q, group.h
+    d = (c_ped * pow(c_fel, p - 2, p)) % p
+    k = _rand_scalar(group, rng)
+    t = pow(h, k, p)
+    e = _challenge(group, prefix, c_ped, c_fel, d, t)
+    return EqualityProof(t=t, z=(k + e * blinding) % q)
+
+
+def verify_commitment_equality(
+    c_ped: int, c_fel: int, proof: EqualityProof, *, group: SchnorrGroup, prefix: int
+) -> bool:
+    """Verify a commitment-equality proof (fail-closed)."""
+    p, h = group.p, group.h
+    d = (c_ped * pow(c_fel, p - 2, p)) % p
+    e = _challenge(group, prefix, c_ped, c_fel, d, proof.t)
+    return pow(h, proof.z, p) == (proof.t * pow(d, e, p)) % p

@@ -136,3 +136,49 @@ def test_god_round_delivers_despite_malicious_holder(tmp_path):
     )
     expected = [sum(updates[p][k] for p in parties) for k in range(dim)]
     assert all(abs(a - e) < 1e-3 for a, e in zip(res.aggregate, expected, strict=True))
+
+
+# --- bounded-norm gate on the GOD path (ADR-0006 item 4, v0.28.0) ----------
+
+
+def test_god_round_with_l2_gate_delivers(tmp_path):
+    parties = [f"bank{i}" for i in range(5)]
+    dim = 3
+    updates = _updates(parties, dim)  # small -> within L2 bound
+    ledger = Ledger(tmp_path / "r.jsonl", key=KEY)
+    res = run_god_consortium_round(
+        round_id="god-l2",
+        updates=updates,
+        dp_results=_dp(parties),
+        threshold=3,
+        ledger=ledger,
+        group=G,
+        l2_bound=4.0,
+        rng=_rng(1),
+    )
+    expected = [sum(updates[p][k] for p in parties) for k in range(dim)]
+    assert all(abs(a - e) < 1e-3 for a, e in zip(res.aggregate, expected, strict=True))
+    rnd = [e for e in verify_chain(ledger.path, key=KEY) if e.payload.get("mode") == "god"][0]
+    assert rnd.payload["proven_norm"] == "l2" and rnd.payload["norm_excluded"] == []
+
+
+def test_god_round_excludes_poisoning_party_and_still_delivers(tmp_path):
+    # A party over the norm bound is excluded by the gate; GOD still delivers over the rest.
+    parties = [f"bank{i}" for i in range(5)]
+    dim = 2
+    updates = _updates(parties, dim)
+    updates["bank2"] = [9.0, 9.0]  # ||.||2 way over the bound
+    res = run_god_consortium_round(
+        round_id="god-poison",
+        updates=updates,
+        dp_results=_dp(parties),
+        threshold=3,
+        ledger=Ledger(tmp_path / "r.jsonl", key=KEY),
+        group=G,
+        l2_bound=2.0,
+        rng=_rng(2),
+    )
+    assert "bank2" in res.excluded and "bank2" not in res.included
+    honest = [p for p in parties if p != "bank2"]
+    expected = [sum(updates[p][k] for p in honest) for k in range(dim)]
+    assert all(abs(a - e) < 1e-3 for a, e in zip(res.aggregate, expected, strict=True))

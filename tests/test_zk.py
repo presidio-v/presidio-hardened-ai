@@ -201,3 +201,22 @@ def test_l2_bound_binding_and_wrong_commitments():
     # wrong commitments rejected
     wrong = _commit([v + 1 for v in values], randomness)
     assert not verify_l2_bounded(wrong, proof, bound=bound, group=G)
+
+
+# --- cross-commitment equality (ADR-0006 item 4) --------------------------
+
+from presidio_ai.fl.zk import prove_commitment_equality, verify_commitment_equality  # noqa: E402
+
+
+def test_commitment_equality_binds_same_value():
+    rng = _rng(30)
+    s, r = 4242, rng.randrange(G.q)
+    c_ped = pedersen_commit(s, r, G)
+    c_fel = pow(G.g, s % G.q, G.p)  # Feldman C_0 = g^s
+    proof = prove_commitment_equality(c_ped, c_fel, r, group=G, prefix=9, rng=rng)
+    assert verify_commitment_equality(c_ped, c_fel, proof, group=G, prefix=9)
+    # different committed value -> fails
+    c_fel_bad = pow(G.g, (s + 1) % G.q, G.p)
+    assert not verify_commitment_equality(c_ped, c_fel_bad, proof, group=G, prefix=9)
+    # transcript binding
+    assert not verify_commitment_equality(c_ped, c_fel, proof, group=G, prefix=10)
