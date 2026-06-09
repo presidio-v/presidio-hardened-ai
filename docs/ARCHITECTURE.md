@@ -161,11 +161,11 @@ per-silo ε charged to tamper-evident budgets → one signed `D4` the governance
 
 ## Status (at time of writing)
 
-- **presidio-hardened-ai** v0.27.0 — P1 evidence layer · P2 ε-accountant (CKS-2020 +
+- **presidio-hardened-ai** v0.29.0 — P1 evidence layer · P2 ε-accountant (CKS-2020 +
   fractional-order RDP) · MPA · DP-SGD (reference + Opacus `[torch]`) · federated learning +
   per-silo governance · **P4 consortium**: exact secure aggregation + dropout recovery,
   `[mpc]` authenticated key agreement, malicious-secure rounds (commitments + Feldman VSS +
-  signed survivor-set), ZK bounded-norm input validation — L∞ and **L2** — (pluggable MODP / Ristretto255+Bulletproofs backends) · **guaranteed output delivery** (honest-majority robust secret-sharing; exclude-and-retry interim) · Ed25519 signing (default).
+  signed survivor-set), ZK bounded-norm input validation — L∞ and **L2** — (pluggable MODP / Ristretto255+Bulletproofs backends) · **guaranteed output delivery** (honest-majority robust secret-sharing; bounded-norm-gated; whole-consortium proof aggregation; exclude-and-retry interim) · Ed25519 signing (default).
 - **presidio-hardened-ikigov-assess** v0.19.0 — assessment/scoring/gates · ISO 42001 / EU
   AI Act / NIST AI RMF via content packs · signed evidence-pack export · external
   evidence-backed affirmation (Ed25519 + rotation) · multi-tenant remote MCP.

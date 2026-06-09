@@ -28,6 +28,7 @@ deployment each silo masks locally with seeds from authenticated key agreement
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,11 +42,19 @@ from presidio_ai.evidence import (
     consortium_commitment,
     export_evidence,
 )
-from presidio_ai.fl.commit import MODP2048_GROUP, SchnorrGroup
+from presidio_ai.fl.commit import MODP2048_GROUP, SchnorrGroup, pedersen_commit
 from presidio_ai.fl.god import deal_input, god_aggregate
 from presidio_ai.fl.proof_backend import ProofBackend, get_backend
 from presidio_ai.fl.secure_agg import DEFAULT_FRAC_BITS, PRIME, SecureAggregationSession, dequantize
-from presidio_ai.fl.zk import ProofError
+from presidio_ai.fl.zk import (
+    ProofError,
+    prove_bounded,
+    prove_commitment_equality,
+    prove_l2_bounded,
+    verify_bounded,
+    verify_commitment_equality,
+    verify_l2_bounded,
+)
 from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ledger import Ledger
 
@@ -647,6 +656,8 @@ def run_god_consortium_round(
     algorithm: str = "ed25519",
     evidence_path: str | Path | None = None,
     holder_overrides: Mapping[Hashable, Mapping[int, int]] | None = None,
+    clip_bound: float | None = None,
+    l2_bound: float | None = None,
     rng=None,
 ) -> GODConsortiumResult:
     """Run a guaranteed-output-delivery round (honest majority ``n ≥ 2*threshold-1``).
@@ -683,6 +694,55 @@ def run_god_consortium_round(
         )
         for p in parties
     }
+
+    # Bounded-norm gate on the *shared* inputs (ADR-0006 item 4): each party's Pedersen
+    # commitment + bounded-norm proof is bound to its VSS commitment (C_0 = g^s) by a
+    # commitment-equality proof, so the proven norm constrains the value actually aggregated.
+    # A party failing the norm or the binding is excluded; GOD still delivers over the rest.
+    proven_norm = None
+    norm_excluded: list[Hashable] = []
+    if clip_bound is not None or l2_bound is not None:
+        is_l2 = l2_bound is not None
+        bound_fp = round((l2_bound if is_l2 else clip_bound) * scale)
+        for party in parties:
+            svals = [round(v * scale) for v in updates[party]]
+            blinds = [
+                (rng.randrange(group.q) if rng is not None else secrets.randbelow(group.q))
+                for _ in svals
+            ]
+            try:
+                if is_l2:
+                    proof = prove_l2_bounded(svals, blinds, bound=bound_fp, group=group, rng=rng)
+                else:
+                    proof = prove_bounded(svals, blinds, bound=bound_fp, group=group, rng=rng)
+            except ProofError:
+                norm_excluded.append(party)
+                continue
+            ped = [pedersen_commit(v, r, group) for v, r in zip(svals, blinds, strict=True)]
+            if is_l2:
+                ok = verify_l2_bounded(ped, proof, bound=bound_fp, group=group)
+            else:
+                ok = proof.bound == bound_fp and verify_bounded(ped, proof, group=group)
+            if not ok:
+                norm_excluded.append(party)
+                continue
+            pfx = int(sha256_hex({"round": round_id, "party": str(party)}), 16) % group.q
+            bound_ok = True
+            for k in range(len(svals)):
+                c_fel = dealt[party].commitments[k][0]  # Feldman C_0 = g^{s_k}
+                eq = prove_commitment_equality(
+                    ped[k], c_fel, blinds[k], group=group, prefix=pfx, rng=rng
+                )
+                if not verify_commitment_equality(ped[k], c_fel, eq, group=group, prefix=pfx):
+                    bound_ok = False
+                    break
+            if not bound_ok:
+                norm_excluded.append(party)
+        dealt = {p: d for p, d in dealt.items() if p not in norm_excluded}
+        if not dealt:
+            raise ConsortiumError("all parties failed the bounded-norm gate")
+        proven_norm = "l2" if is_l2 else "linf"
+
     # Robust reconstruction delivers the sum despite a misbehaving minority (no coordinator).
     god = god_aggregate(
         dealt, threshold=threshold, n_holders=n, group=group, holder_overrides=holder_overrides
@@ -744,6 +804,8 @@ def run_god_consortium_round(
             "n_excluded": len(god.excluded),
             "excluded": [str(p) for p in god.excluded],
             "honest_majority_threshold": threshold,
+            "proven_norm": proven_norm,
+            "norm_excluded": [str(p) for p in norm_excluded],
             "per_silo_epsilon": {str(p): dp_results[p].epsilon for p in god.included},
         },
     )
@@ -766,7 +828,7 @@ def run_god_consortium_round(
         aggregate=aggregate,
         aggregate_field=god.aggregate_field,
         included=god.included,
-        excluded=god.excluded,
+        excluded=list(god.excluded) + norm_excluded,
         max_epsilon=max_epsilon,
         delta=delta,
         per_silo_charge=per_silo_charge,

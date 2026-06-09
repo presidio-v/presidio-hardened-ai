@@ -201,3 +201,53 @@ def test_l2_bound_binding_and_wrong_commitments():
     # wrong commitments rejected
     wrong = _commit([v + 1 for v in values], randomness)
     assert not verify_l2_bounded(wrong, proof, bound=bound, group=G)
+
+
+# --- cross-commitment equality (ADR-0006 item 4) --------------------------
+
+from presidio_ai.fl.zk import prove_commitment_equality, verify_commitment_equality  # noqa: E402
+
+
+def test_commitment_equality_binds_same_value():
+    rng = _rng(30)
+    s, r = 4242, rng.randrange(G.q)
+    c_ped = pedersen_commit(s, r, G)
+    c_fel = pow(G.g, s % G.q, G.p)  # Feldman C_0 = g^s
+    proof = prove_commitment_equality(c_ped, c_fel, r, group=G, prefix=9, rng=rng)
+    assert verify_commitment_equality(c_ped, c_fel, proof, group=G, prefix=9)
+    # different committed value -> fails
+    c_fel_bad = pow(G.g, (s + 1) % G.q, G.p)
+    assert not verify_commitment_equality(c_ped, c_fel_bad, proof, group=G, prefix=9)
+    # transcript binding
+    assert not verify_commitment_equality(c_ped, c_fel, proof, group=G, prefix=10)
+
+
+# --- whole-consortium aggregated bounded-norm proof (v0.29.0) -------------
+
+from presidio_ai.fl.zk import prove_bounded_batch, verify_bounded_batch  # noqa: E402
+
+
+def test_aggregated_bounded_proof_verifies_all_parties():
+    rng = _rng(40)
+    parties = {"a": [-3, 5], "b": [10, -10], "c": [0, 7]}
+    blinds = {p: [rng.randrange(G.q) for _ in v] for p, v in parties.items()}
+    commits = {
+        p: [pedersen_commit(v, r, G) for v, r in zip(parties[p], blinds[p], strict=True)]
+        for p in parties
+    }
+    proof = prove_bounded_batch(parties, blinds, bound=16, group=G, rng=rng)
+    assert verify_bounded_batch(commits, proof, bound=16, group=G)
+
+
+def test_aggregated_proof_is_cross_bound_to_all_commitments():
+    rng = _rng(41)
+    parties = {"a": [1, 2], "b": [3, 4]}
+    blinds = {p: [rng.randrange(G.q) for _ in v] for p, v in parties.items()}
+    commits = {
+        p: [pedersen_commit(v, r, G) for v, r in zip(parties[p], blinds[p], strict=True)]
+        for p in parties
+    }
+    proof = prove_bounded_batch(parties, blinds, bound=16, group=G, rng=rng)
+    # Tampering ANY party's commitment changes the shared transcript domain -> batch fails.
+    commits["b"][0] = (commits["b"][0] * 2) % G.p
+    assert not verify_bounded_batch(commits, proof, bound=16, group=G)

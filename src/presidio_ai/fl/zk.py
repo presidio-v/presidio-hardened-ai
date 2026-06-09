@@ -140,7 +140,13 @@ class RangeProof:
 
 
 def prove_range(
-    value: int, randomness: int, *, bits: int, group: SchnorrGroup = MODP2048_GROUP, rng=None
+    value: int,
+    randomness: int,
+    *,
+    bits: int,
+    group: SchnorrGroup = MODP2048_GROUP,
+    rng=None,
+    domain: int = 0,
 ) -> RangeProof:
     """Prove ``commitment = g^value · h^randomness`` opens to a value in ``[0, 2^bits)``."""
     if bits < 1:
@@ -157,7 +163,7 @@ def prove_range(
     r_bits.append(((randomness - weighted) % q) * inv_top % q)
     bit_vals = [(value >> i) & 1 for i in range(bits)]
     bit_commitments = [pedersen_commit(bit_vals[i], r_bits[i], group) for i in range(bits)]
-    prefix = _challenge(group, commitment, bits, *bit_commitments)
+    prefix = _challenge(group, domain, commitment, bits, *bit_commitments)
     bit_proofs = [
         prove_bit(
             bit_commitments[i],
@@ -174,14 +180,14 @@ def prove_range(
 
 
 def verify_range(
-    commitment: int, proof: RangeProof, *, group: SchnorrGroup = MODP2048_GROUP
+    commitment: int, proof: RangeProof, *, group: SchnorrGroup = MODP2048_GROUP, domain: int = 0
 ) -> bool:
     """Verify a range proof against ``commitment`` (fail-closed)."""
     p, q = group.p, group.q
     n = proof.bits
     if n < 1 or len(proof.bit_commitments) != n or len(proof.bit_proofs) != n:
         return False
-    prefix = _challenge(group, commitment, n, *proof.bit_commitments)
+    prefix = _challenge(group, domain, commitment, n, *proof.bit_commitments)
     # Bind the bits (and randomness) to the original commitment.
     product = 1
     for i, ci in enumerate(proof.bit_commitments):
@@ -212,6 +218,7 @@ def prove_bounded(
     bound: int,
     group: SchnorrGroup = MODP2048_GROUP,
     rng=None,
+    domain: int = 0,
 ) -> BoundedNormProof:
     """Prove each committed coordinate ``u_k in [-bound, bound]`` (L∞), in zero knowledge.
 
@@ -229,7 +236,7 @@ def prove_bounded(
     for u, r in zip(values, randomness, strict=True):
         if not -bound <= u <= bound:
             raise ProofError(f"coordinate {u} is outside [-{bound}, {bound}]")
-        proofs.append(prove_range(u + bound, r, bits=bits, group=group, rng=rng))
+        proofs.append(prove_range(u + bound, r, bits=bits, group=group, rng=rng, domain=domain))
     return BoundedNormProof(bound=bound, bits=bits, coordinate_proofs=proofs)
 
 
@@ -238,6 +245,7 @@ def verify_bounded(
     proof: BoundedNormProof,
     *,
     group: SchnorrGroup = MODP2048_GROUP,
+    domain: int = 0,
 ) -> bool:
     """Verify an L∞ bounded-norm proof against per-coordinate commitments (fail-closed)."""
     if proof.bound < 1 or proof.bits != (2 * proof.bound).bit_length():
@@ -249,7 +257,7 @@ def verify_bounded(
         if range_proof.bits != proof.bits:
             return False
         shifted = (commitment * g_bound) % group.p
-        if not verify_range(shifted, range_proof, group=group):
+        if not verify_range(shifted, range_proof, group=group, domain=domain):
             return False
     return True
 
@@ -415,3 +423,119 @@ def verify_l2_bounded(
     # establishes S ≤ bound².
     c_diff = (pow(g, m % q, p) * pow(s_commit, p - 2, p)) % p
     return verify_range(c_diff, proof.range_diff, group=group)
+
+
+# --- Cross-commitment equality (ADR-0006 item 4): bind a Pedersen commitment to a
+# Feldman commitment of the same value, so a bounded-norm proof over the Pedersen
+# commitment constrains the value that was VSS-shared for GOD aggregation. -----------
+
+
+@dataclass(frozen=True)
+class EqualityProof:
+    """A Schnorr proof that ``c_ped`` and ``c_fel`` commit the same value."""
+
+    t: int
+    z: int
+
+
+def prove_commitment_equality(
+    c_ped: int,
+    c_fel: int,
+    blinding: int,
+    *,
+    group: SchnorrGroup,
+    prefix: int,
+    rng=None,
+) -> EqualityProof:
+    """Prove ``c_ped = g^s h^blinding`` and ``c_fel = g^s`` commit the same ``s``.
+
+    Their quotient ``c_ped · c_fel^{-1} = h^blinding`` is a pure power of ``h`` iff the
+    ``g``-exponents match; this is a Schnorr proof of knowledge of ``blinding`` for it.
+    """
+    p, q, h = group.p, group.q, group.h
+    d = (c_ped * pow(c_fel, p - 2, p)) % p
+    k = _rand_scalar(group, rng)
+    t = pow(h, k, p)
+    e = _challenge(group, prefix, c_ped, c_fel, d, t)
+    return EqualityProof(t=t, z=(k + e * blinding) % q)
+
+
+def verify_commitment_equality(
+    c_ped: int, c_fel: int, proof: EqualityProof, *, group: SchnorrGroup, prefix: int
+) -> bool:
+    """Verify a commitment-equality proof (fail-closed)."""
+    p, h = group.p, group.h
+    d = (c_ped * pow(c_fel, p - 2, p)) % p
+    e = _challenge(group, prefix, c_ped, c_fel, d, proof.t)
+    return pow(h, proof.z, p) == (proof.t * pow(d, e, p)) % p
+
+
+# --- Whole-consortium aggregation: one bounded-norm proof object over all parties,
+# cross-bound under a single Fiat-Shamir transcript (ADR-0004/0006 aggregation). ----
+
+
+@dataclass(frozen=True)
+class AggregatedBoundedProof:
+    """One round-level bounded-norm proof covering every party, cross-bound by ``domain``."""
+
+    bound: int
+    party_order: list[str]
+    proofs: dict[str, BoundedNormProof]
+
+
+def _batch_domain(bound: int, party_commitments, party_order, group: SchnorrGroup) -> int:
+    flat = [c for p in party_order for c in party_commitments[p]]
+    return _challenge(group, bound, *flat)
+
+
+def prove_bounded_batch(
+    party_values: dict,
+    party_blindings: dict,
+    *,
+    bound: int,
+    group: SchnorrGroup = MODP2048_GROUP,
+    rng=None,
+) -> AggregatedBoundedProof:
+    """Prove the L∞ bound for *every* party as one cross-bound proof object.
+
+    Each party's per-coordinate proof is computed under a shared ``domain`` that hashes
+    **all** parties' input commitments, so a proof cannot be replayed onto a different
+    party's commitments and the batch verifies as a unit.
+    """
+    order = [str(p) for p in party_values]
+    commitments = {
+        str(p): [
+            pedersen_commit(v, r, group)
+            for v, r in zip(party_values[p], party_blindings[p], strict=True)
+        ]
+        for p in party_values
+    }
+    domain = _batch_domain(bound, commitments, order, group)
+    proofs = {
+        str(p): prove_bounded(
+            party_values[p], party_blindings[p], bound=bound, group=group, rng=rng, domain=domain
+        )
+        for p in party_values
+    }
+    return AggregatedBoundedProof(bound=bound, party_order=order, proofs=proofs)
+
+
+def verify_bounded_batch(
+    party_commitments: dict,
+    proof: AggregatedBoundedProof,
+    *,
+    bound: int,
+    group: SchnorrGroup = MODP2048_GROUP,
+) -> bool:
+    """Verify an aggregated bounded-norm proof (fail-closed; binds the whole batch)."""
+    if proof.bound != bound:
+        return False
+    keyed = {str(p): c for p, c in party_commitments.items()}
+    if set(keyed) != set(proof.party_order):
+        return False
+    domain = _batch_domain(bound, keyed, proof.party_order, group)
+    for p in proof.party_order:
+        pf = proof.proofs[p]
+        if pf.bound != bound or not verify_bounded(keyed[p], pf, group=group, domain=domain):
+            return False
+    return True

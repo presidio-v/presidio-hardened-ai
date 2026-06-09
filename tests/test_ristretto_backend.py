@@ -83,3 +83,16 @@ def test_l2_decision_equivalence_over_l2_rejected(backend_factory):
     blindings = [b.random_blinding() for _ in values]
     with pytest.raises(Exception):  # noqa: B017 - prover refuses an out-of-L2 witness
         b.prove_l2_bounded(values, blindings, bound=50)
+
+
+@pytest.mark.parametrize("backend_factory", [RistrettoBulletproofsBackend, lambda: _MODP])
+def test_batch_aggregation_decision_equivalence(backend_factory):
+    b = backend_factory()
+    party_values = {"a": [-3, 5], "b": [10, -10], "c": [0, 7]}
+    party_blindings = {p: [b.random_blinding() for _ in v] for p, v in party_values.items()}
+    party_commitments = {
+        p: [b.commit(v, r) for v, r in zip(party_values[p], party_blindings[p], strict=True)]
+        for p in party_values
+    }
+    proof = b.prove_bounded_batch(party_values, party_blindings, bound=16)
+    assert b.verify_bounded_batch(party_commitments, proof, bound=16) is True

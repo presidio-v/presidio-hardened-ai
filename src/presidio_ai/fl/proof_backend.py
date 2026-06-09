@@ -32,8 +32,10 @@ from presidio_ai.fl.commit import (
     random_scalar,
 )
 from presidio_ai.fl.zk import prove_bounded as _modp_prove_bounded
+from presidio_ai.fl.zk import prove_bounded_batch as _modp_prove_batch
 from presidio_ai.fl.zk import prove_l2_bounded as _modp_prove_l2
 from presidio_ai.fl.zk import verify_bounded as _modp_verify_bounded
+from presidio_ai.fl.zk import verify_bounded_batch as _modp_verify_batch
 from presidio_ai.fl.zk import verify_l2_bounded as _modp_verify_l2
 
 
@@ -92,6 +94,14 @@ class ModpBackend:
 
     def verify_l2_bounded(self, commitments, proof, *, bound) -> bool:
         return _modp_verify_l2(commitments, proof, bound=bound, group=self.group)
+
+    def prove_bounded_batch(self, party_values, party_blindings, *, bound, rng=None):
+        return _modp_prove_batch(
+            party_values, party_blindings, bound=bound, group=self.group, rng=rng
+        )
+
+    def verify_bounded_batch(self, party_commitments, proof, *, bound) -> bool:
+        return _modp_verify_batch(party_commitments, proof, bound=bound, group=self.group)
 
 
 def _load_native() -> ProofBackend | None:

@@ -126,3 +126,19 @@ class RistrettoBulletproofsBackend:
                 return False
         s_commit = self.sum(sq_commitments)
         return self.verify_bounded([s_commit], range_proof, bound=m)
+
+    # Whole-consortium aggregation: one Bulletproof over the concatenated consortium vector
+    # (true O(log) aggregation via the native aggregated range proof).
+
+    def prove_bounded_batch(self, party_values, party_blindings, *, bound: int, rng=None):
+        order = sorted(party_values, key=str)
+        flat_v = [v for p in order for v in party_values[p]]
+        flat_r = [r for p in order for r in party_blindings[p]]
+        return ([str(p) for p in order], self.prove_bounded(flat_v, flat_r, bound=bound, rng=rng))
+
+    def verify_bounded_batch(self, party_commitments, proof, *, bound: int) -> bool:
+        order, agg = proof
+        if [str(p) for p in sorted(party_commitments, key=str)] != list(order):
+            return False
+        flat_c = [c for p in order for c in party_commitments[p]]
+        return self.verify_bounded(flat_c, agg, bound=bound)
