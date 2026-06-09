@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes       |
+| 0.30.x  | Yes       |
+| < 0.30  | No (upgrade to the latest 0.30.x) |
 
 ### Supported Python runtimes
 

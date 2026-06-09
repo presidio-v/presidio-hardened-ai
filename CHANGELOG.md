@@ -4,7 +4,7 @@ All notable changes to `presidio-hardened-ai`. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses 0.y.z pre-1.0 versioning.
 Per-version design rationale lives in `PRESIDIO-REQ.md`; architecture decisions in `docs/adr/`.
 
-The **P4 consortium** arc (v0.11.0–v0.30.0) hardens multi-party secure aggregation across six
+The **P4 consortium** arc (v0.11.0–v0.30.0) hardens multi-party secure aggregation across seven
 accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** throughout, so the
 `presidio-hardened-ikigov-assess` verifier interoperates with every version below.
 
