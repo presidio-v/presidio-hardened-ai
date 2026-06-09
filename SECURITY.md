@@ -233,6 +233,29 @@ majority can always withhold the output. Adopting GOD therefore means the consor
 majority-honest assumption — stricter than the ADR-0001/0002 collusion bound. Outside honest
 majority, fall back to ADR-0002 security-with-abort (the round aborts attributably).
 
+## Byzantine-ML Robustness Posture (P4, v0.30.0, ADR-0007)
+
+Norm bounds + protocol honesty + delivery do not stop a *well-formed, in-norm* but adversarial
+update (a backdoor / targeted poison). Classical Byzantine-robust rules inspect individual
+updates — which secure aggregation hides — so this is handled as a **layered, privacy-preserving
+posture** (none of which sees an individual update), not as detection-and-attribution:
+
+- **Influence-bounding by construction** — the proven L2 norm (ADR-0005) and per-client DP both
+  bound any single client's effect on the model (recognised poisoning mitigations).
+- **Accountability** — known participants + n-of-m MPA + signed/ledgered contributions make an
+  attack attributable and forensically traceable.
+- **Aggregate validation gate + rollback** (`fl.robustness`) — each round's candidate aggregate
+  is scored against a consortium-supplied clean validation set + a canary/trigger suite; a round
+  that fails (low score, regression, or a triggered canary) is **rolled back** — its aggregate is
+  not applied, **no DP budget is charged**, no evidence is emitted — and a flag is recorded on the
+  ledger.
+
+**Residual (stated, not claimed away):** a stealthy, low-deviation backdoor that does not move the
+validation/canary metrics can still pass; v1 *contains and attributes* rather than *detects*. The
+escalation path is a per-party cosine-band ZK proof (ADR-0007 B) and, for a malicious majority of
+contributions, robust aggregation under MPC (ADR-0007 A). The consortium owns the clean validation
+set and canary suite (the suite ships no data).
+
 ## Software Development Lifecycle
 
 Developed under the Presidio hardened-family SDLC:

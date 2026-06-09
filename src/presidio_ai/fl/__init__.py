@@ -66,6 +66,14 @@ from presidio_ai.fl.proof_backend import (
     backend_name,
     get_backend,
 )
+from presidio_ai.fl.robustness import (
+    RobustnessMetrics,
+    RobustnessPolicy,
+    RobustnessVerdict,
+)
+from presidio_ai.fl.robustness import (
+    evaluate as evaluate_robustness,
+)
 from presidio_ai.fl.secure_agg import (
     SecureAggregationSession,
     dequantize,
@@ -122,6 +130,10 @@ __all__ = [
     "RetryRoundResult",
     "run_god_consortium_round",
     "GODConsortiumResult",
+    "RobustnessPolicy",
+    "RobustnessMetrics",
+    "RobustnessVerdict",
+    "evaluate_robustness",
     "deal_input",
     "god_aggregate",
     "GODResult",

@@ -171,19 +171,19 @@ privacy-preserving control fully removes it, and the accountability layer is the
 - Reproducible-trigger backdoors are in scope → expand the canary/trigger test battery.
 
 ## Action Items
-1. [ ] Threat-model section: define in-norm backdoor / targeted poison precisely; state what
+1. [x] Threat-model section: define in-norm backdoor / targeted poison precisely; state what
        v1 **mitigates/contains** vs **detects**, and the residual; record the DP + norm
        influence-bound as the robustness floor (with the bound each gives).
-2. [ ] Implement the **aggregate-validation gate + rollback**: score each round's candidate
+2. [x] Implement the **aggregate-validation gate + rollback**: score each round's candidate
        global on a clean held-out set + a canary/trigger suite; reject/rollback on regression
        beyond a configured threshold; record a robustness flag (aggregate-level, commitments-
        only) on the ledger; surface it in the round result and (optionally) `D4`.
-3. [ ] Document the **layered posture** (norm + DP + MPA/accountability + validation/rollback)
+3. [x] Document the **layered posture** (norm + DP + MPA/accountability + validation/rollback)
        in `SECURITY.md`, with the explicit residual and the escalation path.
 4. [ ] Scope **(B) cosine-band ZK** as the next cryptographic increment: a ZK proof that the
        committed update's direction is within a band of a public reference, reusing the
        ADR-0003/0005 machinery; pin the predicate and false-positive/missed-attack trade-off.
 5. [ ] Define the **escalation trigger** to (A) robust-aggregation-under-MPC and record it as a
        revisit condition (malicious majority of contributions / stealthy-backdoor priority).
-6. [ ] Cross-check the validation/rollback path composes with GOD and security-with-abort
+6. [x] Cross-check the validation/rollback path composes with GOD and security-with-abort
        rounds and with per-silo DP charging (a rolled-back round must not double-charge ε).
