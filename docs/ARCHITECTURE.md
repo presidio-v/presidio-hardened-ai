@@ -193,11 +193,11 @@ exactly as the single-node and security-with-abort cases do.
 
 ## Status (at time of writing)
 
-- **presidio-hardened-ai** v0.29.0 — P1 evidence layer · P2 ε-accountant (CKS-2020 +
+- **presidio-hardened-ai** v0.30.0 — P1 evidence layer · P2 ε-accountant (CKS-2020 +
   fractional-order RDP) · MPA · DP-SGD (reference + Opacus `[torch]`) · federated learning +
   per-silo governance · **P4 consortium**: exact secure aggregation + dropout recovery,
   `[mpc]` authenticated key agreement, malicious-secure rounds (commitments + Feldman VSS +
-  signed survivor-set), ZK bounded-norm input validation — L∞ and **L2** — (pluggable MODP / Ristretto255+Bulletproofs backends) · **guaranteed output delivery** (honest-majority robust secret-sharing; bounded-norm-gated; whole-consortium proof aggregation; exclude-and-retry interim) · Ed25519 signing (default).
+  signed survivor-set), ZK bounded-norm input validation — L∞ and **L2** — (pluggable MODP / Ristretto255+Bulletproofs backends) · **guaranteed output delivery** (honest-majority robust secret-sharing; bounded-norm-gated; whole-consortium proof aggregation; exclude-and-retry interim) · **Byzantine-ML robustness gate** (aggregate validation + rollback) · Ed25519 signing (default).
 - **presidio-hardened-ikigov-assess** v0.19.0 — assessment/scoring/gates · ISO 42001 / EU
   AI Act / NIST AI RMF via content packs · signed evidence-pack export · external
   evidence-backed affirmation (Ed25519 + rotation) · multi-tenant remote MCP.
@@ -212,7 +212,7 @@ exactly as the single-node and security-with-abort cases do.
 - [ADR-0004](adr/0004-ristretto-bulletproofs-backend.md) — Ristretto255 + Bulletproofs performance backend: a pluggable `ProofBackend` (audited dalek crates behind `[zk]`, built in `ci-zk`) with the pure-Python MODP proof as a dependency-free fallback; same guarantee (P4, **Accepted & built** v0.21.0–v0.22.0).
 - [ADR-0005](adr/0005-l2-bounded-norm.md) — L2 bounded-norm proofs: commit squares + a square-correctness Σ-proof + range-prove the homomorphic squared-norm, enforcing the *exact* DP clip norm on both backends (P4, **Accepted & built** v0.23.0–v0.24.0).
 - [ADR-0006](adr/0006-guaranteed-output-delivery.md) — guaranteed output delivery: honest-majority robust secret-sharing aggregation (VSS-shared inputs + robust reconstruction) so a misbehaving minority cannot halt the round; interim exclude-and-retry (P4, **Accepted & built** v0.25.0–v0.27.0).
-- [ADR-0007](adr/0007-byzantine-ml-robustness.md) — Byzantine-ML robustness against in-norm backdoors: a privacy-preserving layered posture (norm + DP influence-bound + accountability + aggregate validation/rollback), with cosine-band ZK and robust-aggregation-under-MPC as scoped escalations (P4, **Proposed**).
+- [ADR-0007](adr/0007-byzantine-ml-robustness.md) — Byzantine-ML robustness against in-norm backdoors: a privacy-preserving layered posture (norm + DP influence-bound + accountability + aggregate validation/rollback), with cosine-band ZK and robust-aggregation-under-MPC as scoped escalations (P4, **Accepted & built** v0.30.0).
 
 ## SDLC
 

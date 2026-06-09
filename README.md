@@ -1,7 +1,9 @@
 # presidio-hardened-ai
 
-> v0.1.0 — **Evidence layer (P1):** tamper-evident privacy ledger, PII-scrub on
-> ingest, and signed `EvidenceRef` export for the IKI-Gov governance spine.
+> v0.30.0 — **Training-time privacy controls (P1–P4):** tamper-evident DP ε-budgets,
+> n-of-m (MPA) authorized training, malicious-secure guaranteed-output-delivery consortium
+> rounds with zero-knowledge bounded-norm (L∞/L2) input validation, and Ed25519-signed
+> evidence the IKI-Gov governance spine verifies from the public key alone.
 
 Training-time privacy controls for AI. Where the rest of the toolkit governs
 *payments* (`presidio-hardened-x402`) and *assessment* (`presidio-hardened-ikigov-assess`),
@@ -253,22 +255,19 @@ the contact in [SECURITY.md](SECURITY.md)).
 
 ## Roadmap
 
-| Phase | Version | Theme |
+| Phase | Versions | Theme |
 |---|---|---|
-| P1 | v0.1.0 | Evidence layer: ledger + PII-scrub + signed EvidenceRef |
-| P2 | v0.2.0 | ε-budget accountant + DP governance + DP evidence |
-| P2 | v0.3.0 | n-of-m authorization (MPA) for high-ε jobs |
-| P2 | v0.4.0 | DP-SGD trainer: reference + Opacus seam (`pai dp-train`) |
-| P3 | v0.5.0 | Federated learning: FedAvg + secure aggregation (`pai fl-train`) |
-| **P3** | **v0.9.0** | **FL governance: per-silo ε-budget + signed D4 evidence (`fl-train --charge`) — current** |
-| P2 | v0.6.0 | Opacus DP-SGD backend + torch CI lane; CSPRNG noise |
-| — | v0.7.0 | Ed25519 public-key evidence signing + `pai keygen` |
-| **—** | **v0.8.0** | **Ed25519 is the default signing algorithm — current** |
-| P2 | v0.3.0 | n-of-m authorization for high-ε jobs; ikigov MCP bridge |
-| P3 | v0.4.0 | Federated learning for cross-border / cross-silo data |
-| P4 | — | Multi-party consortium (SMPC) — pull-only |
+| P1 | v0.1.0 | Evidence layer: tamper-evident ledger + PII-scrub + signed `EvidenceRef` |
+| P2 | v0.2.0–v0.4.0, v0.10.0, v0.15.0 | ε-budget accountant (CKS-2020 + fractional-order RDP), n-of-m MPA, DP-SGD (reference + Opacus) |
+| P3 | v0.5.0, v0.9.0 | Federated learning across silos + per-silo ε-budget + signed D4 |
+| P4 | v0.11.0–v0.18.0 | Consortium secure aggregation: exact field masking, dropout recovery, `[mpc]` authenticated key agreement, malicious-secure (Feldman VSS + signed survivor-set + homomorphic check) |
+| P4 | v0.19.0–v0.24.0 | Zero-knowledge bounded-norm input validation (L∞/L2); pluggable MODP / Ristretto255+Bulletproofs backend |
+| P4 | v0.25.0–v0.29.0 | Guaranteed output delivery (honest-majority robust aggregation) + whole-consortium proof aggregation |
+| **P4** | **v0.30.0** | **Byzantine-ML robustness gate: aggregate validation + rollback — current** |
 
-See [PRESIDIO-REQ.md](PRESIDIO-REQ.md) for the full deliberation log.
+Seven accepted ADRs (`docs/adr/`, see the [index](docs/adr/README.md)) cover the P4 arc.
+See [PRESIDIO-REQ.md](PRESIDIO-REQ.md) for the full deliberation log and
+[CHANGELOG.md](CHANGELOG.md) for the release summary.
 
 ---
 

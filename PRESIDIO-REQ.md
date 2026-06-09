@@ -87,7 +87,8 @@ CLI command: `pai`
 | v0.26.0 | P4 | Robust reconstruction (`robust_reconstruct`) — verify/discard/interpolate | Shipped |
 | v0.27.0 | P4 | GOD aggregation + round (`fl.god`, `run_god_consortium_round`) — honest-majority | Shipped |
 | v0.28.0 | P4 | Bounded-norm gate on the GOD path via commitment-equality binding (ADR-0006 item 4) | Shipped |
-| v0.29.0 | P4 | Whole-consortium bounded-norm proof aggregation (cross-bound batch / native Bulletproof) | **Current** |
+| v0.29.0 | P4 | Whole-consortium bounded-norm proof aggregation (cross-bound batch / native Bulletproof) | Shipped |
+| v0.30.0 | P4 | Byzantine-ML robustness gate: aggregate validation + rollback + canary (`fl.robustness`) — ADR-0007 | **Current** |
 | — | — | `ci-zk` manual until first green build on a Rust runner; then benchmarks | Deferred |
 
 ---
@@ -801,6 +802,27 @@ GOD-MPC for non-linear aggregates; verifiable threshold HE.
 This closes the last two open P4 sub-items. The only remaining work is operational: the first
 `ci-zk` / `ci-mpc` / `ci-torch` runs to compile the native lanes and produce the benchmark
 numbers (the crypto and its decision-equivalence tests are in place).
+
+---
+
+## v0.30.0 — Byzantine-ML Robustness Gate (P4, ADR-0007)
+
+Closes the last deferred security scope (semantic robustness, named across ADR-0002/0003/
+0005/0006). In-norm backdoors are an **ML-robustness** problem and collide with the privacy
+guarantee — robust rules need the individual updates secure aggregation hides — so v1 is a
+**privacy-preserving layered posture** (Option C), not detection-and-attribution:
+
+- **`fl.robustness`** scores a round's *aggregate* (never an individual update) against a
+  consortium-supplied clean validation set + canary/trigger suite; a round that fails (low
+  score, regression, or a triggered canary) is **rolled back** — aggregate not applied, no DP
+  budget charged, no `D4` emitted — and flagged on the ledger.
+- It composes with the existing influence-bounding floor (proven L2 norm + per-client DP, both
+  recognised poisoning mitigations) and the accountability layer (MPA + signed/ledgered
+  contributions). Residual stated in SECURITY.md: a stealthy validation-passing backdoor can
+  pass; v1 contains and attributes rather than detects.
+
+**Deferred (ADR-0007):** a per-party cosine-band ZK increment (B) and robust-aggregation-under-
+MPC (A) for a malicious majority of contributions.
 
 ---
 

@@ -1,6 +1,6 @@
 # ADR-0007: Byzantine-ML robustness against in-norm backdoors
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-06-09
 **Deciders:** Vladimir Stantchev (architecture); FS design-partner risk/security leads
 **Scope:** `presidio-hardened-ai` P4 — limit the damage a *well-formed, in-norm* but
