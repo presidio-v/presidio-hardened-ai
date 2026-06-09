@@ -141,6 +141,38 @@ sharing → Pedersen-committed signed inputs → **ZK bounded-norm proofs** (so 
 signed survivor-set + homomorphic aggregate check (security-with-abort) → n-of-m MPA →
 per-silo ε charged to tamper-evident budgets → one signed `D4` the governance spine verifies.
 
+### Guaranteed-output-delivery round (P4, honest majority) — verified
+
+The same loop runs in **GOD** mode (ADR-0006), where a misbehaving minority cannot halt the
+round and there is no coordinator: parties VSS-share their updates, the sum is robustly
+reconstructed by an honest quorum, the L2 bounded-norm gate (bound to the shared inputs by a
+commitment-equality proof) screens each contribution, and one signed `D4` is emitted.
+
+```python
+from presidio_ai.fl.consortium import run_god_consortium_round
+res = run_god_consortium_round(
+    round_id="god-1", updates=updates, dp_results=dp, threshold=3,   # honest-majority quorum t+1
+    ledger=ledger, group=group, budgets=budgets, l2_bound=2.0,        # exact DP clip norm, proven
+    signing_key=PRIV, signer="presidio-hardened-ai", algorithm="ed25519",
+    evidence_path="god.evidence.json",
+)
+# ikigov verifies the round's D4 with only the public key (verify_ref(refs[0], trust) == True)
+```
+
+Result (verified live against `presidio-hardened-ai` v0.29.0 + ikigov v0.19.0, with a
+poisoning party whose update exceeds the L2 bound):
+
+```
+PRODUCER  included=[bank0,bank1,bank2,bank4]  excluded=[bank3]      # poisoner gated out
+          aggregate == honest-only sum: True
+          ledger: mode=god  proven_norm=l2  honest_majority_threshold=3
+CONSUMER  D4: verify_ref=True   (signer=presidio-hardened-ai)
+```
+
+The malicious party is excluded by the bounded-norm gate, the honest quorum still **delivers**
+the correct aggregate (no abort, no coordinator), and the signed evidence verifies cross-suite
+exactly as the single-node and security-with-abort cases do.
+
 ## Coordination invariants
 
 - **Signing default ↔ verifier capability.** `presidio-hardened-ai` ≥ v0.8.0 defaults to
