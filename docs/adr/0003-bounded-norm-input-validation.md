@@ -9,7 +9,9 @@
 *protocol honesty* ADR-0002 secured; both build on the [ADR-0001](0001-multiparty-secure-aggregation.md)
 secure-aggregation core.
 **Amended by:** [ADR-0004](0004-ristretto-bulletproofs-backend.md) — the deferred Ristretto255
-+ Bulletproofs *performance* backend for these proofs (same guarantee).
++ Bulletproofs *performance* backend for these proofs (same guarantee); and
+[ADR-0007](0007-byzantine-ml-robustness.md) — the deferred *semantic* (in-norm backdoor)
+robustness scope (an ML-robustness problem).
 
 > **Implementation status (v0.19.0–v0.20.0).** Accepted; v1 built. `fl.zk` ships a
 > transparent Pedersen bit-decomposition **range proof** + an **L∞ bounded-norm vector
