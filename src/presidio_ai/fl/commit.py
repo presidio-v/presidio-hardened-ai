@@ -214,3 +214,31 @@ def feldman_reconstruct(shares: Mapping[int, int], *, group: SchnorrGroup = MODP
     if not shares:
         raise CommitmentError("need at least one share to reconstruct")
     return _lagrange_at_zero(shares, group.q)
+
+
+def robust_reconstruct(
+    shares: Mapping[int, int],
+    commitments: Sequence[int],
+    *,
+    threshold: int,
+    group: SchnorrGroup = MODP2048_GROUP,
+) -> int:
+    """Reconstruct a Feldman-shared secret, tolerating invalid/missing shares (ADR-0006).
+
+    Verifies each share against the public coefficient ``commitments``, discards the invalid
+    ones (malicious or corrupted), and Lagrange-interpolates the secret from any ``threshold``
+    of the valid shares. Delivers the correct secret as long as at least ``threshold`` valid
+    shares are present (with Feldman VSS this is robust *detection*, so an honest majority
+    ``n >= 2t+1`` suffices). Fails closed if fewer than ``threshold`` valid shares remain.
+    """
+    if threshold < 1:
+        raise CommitmentError("threshold must be >= 1")
+    valid = {
+        x: y for x, y in shares.items() if feldman_verify_share(x, y, commitments, group=group)
+    }
+    if len(valid) < threshold:
+        raise CommitmentError(
+            f"only {len(valid)} valid shares (< threshold {threshold}); cannot reconstruct"
+        )
+    quorum = dict(list(valid.items())[:threshold])
+    return feldman_reconstruct(quorum, group=group)

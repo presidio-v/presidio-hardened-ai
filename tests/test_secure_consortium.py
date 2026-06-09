@@ -308,3 +308,59 @@ def test_secure_round_l2_rejects_high_norm_update(tmp_path):
             l2_bound=2.0,
             rng=random.Random(3),  # noqa: S311 - test fixture
         )
+
+
+# --- GOD interim: exclude-and-retry (ADR-0006 Option D, v0.25.0) -----------
+
+
+def test_retry_excludes_cheater_and_completes(tmp_path):
+    from presidio_ai.fl.consortium import run_consortium_round_with_retry
+
+    parties = ["bankA", "bankB", "bankC", "bankD"]
+    dim = 3
+    skeys = {p: f"k-{p}" for p in parties}
+    updates = _updates(parties, dim)
+    updates["bankC"] = [50.0, 0.0, 0.0]  # poisoning: over the L2 clip bound
+    sess = _vsession(parties, dim, threshold=2)
+    ledger = Ledger(tmp_path / "r.jsonl", key=KEY)
+    out = run_consortium_round_with_retry(
+        round_id="god-d",
+        updates=updates,
+        dp_results=_dp(parties),
+        session=sess,
+        ledger=ledger,
+        survivor_keys=skeys,
+        survivor_threshold=2,
+        backend=BACKEND,
+        l2_bound=2.0,
+        rng=random.Random(5),  # noqa: S311 - test fixture
+    )
+    assert out.excluded == ["bankC"]
+    assert set(out.result.survivors) == {"bankA", "bankB", "bankD"}
+    expected = [sum(updates[p][k] for p in ["bankA", "bankB", "bankD"]) for k in range(dim)]
+    assert all(abs(a - e) < 1e-3 for a, e in zip(out.result.aggregate, expected, strict=True))
+
+
+def test_retry_fails_closed_when_too_few_honest_remain(tmp_path):
+    from presidio_ai.fl.consortium import run_consortium_round_with_retry
+
+    parties = ["a", "b", "c"]
+    dim = 2
+    skeys = {p: f"k-{p}" for p in parties}
+    updates = _updates(parties, dim)
+    updates["b"] = [9.0, 9.0]  # over bound
+    updates["c"] = [9.0, 9.0]  # over bound -> after excluding both, < threshold remain
+    sess = _vsession(parties, dim, threshold=2)
+    with pytest.raises(ConsortiumError, match="honest parties remain"):
+        run_consortium_round_with_retry(
+            round_id="god-d2",
+            updates=updates,
+            dp_results=_dp(parties),
+            session=sess,
+            ledger=Ledger(tmp_path / "r.jsonl", key=KEY),
+            survivor_keys=skeys,
+            survivor_threshold=2,
+            backend=BACKEND,
+            l2_bound=2.0,
+            rng=random.Random(1),  # noqa: S311 - test fixture
+        )
