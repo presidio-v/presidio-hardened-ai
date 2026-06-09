@@ -45,6 +45,8 @@ from presidio_ai.evidence import (
 from presidio_ai.fl.commit import MODP2048_GROUP, SchnorrGroup, pedersen_commit
 from presidio_ai.fl.god import deal_input, god_aggregate
 from presidio_ai.fl.proof_backend import ProofBackend, get_backend
+from presidio_ai.fl.robustness import RobustnessPolicy, RobustnessVerdict
+from presidio_ai.fl.robustness import evaluate as _robustness_evaluate
 from presidio_ai.fl.secure_agg import DEFAULT_FRAC_BITS, PRIME, SecureAggregationSession, dequantize
 from presidio_ai.fl.zk import (
     ProofError,
@@ -318,6 +320,8 @@ class SecureConsortiumResult:
     approvers: list[str]
     ledger_seq: int
     evidence_path: Path | None
+    applied: bool = True
+    robustness: RobustnessVerdict | None = None
 
 
 def run_secure_consortium_round(
@@ -341,6 +345,8 @@ def run_secure_consortium_round(
     evidence_path: str | Path | None = None,
     clip_bound: float | None = None,
     l2_bound: float | None = None,
+    robustness: RobustnessPolicy | None = None,
+    previous_score: float | None = None,
     rng=None,
 ) -> SecureConsortiumResult:
     """A consortium round hardened against active deviation (ADR-0002, security-with-abort).
@@ -456,6 +462,38 @@ def run_secure_consortium_round(
         )
     aggregate = [dequantize(v, frac_bits=session.frac_bits, prime=session.prime) for v in agg_field]
 
+    # Robustness gate (ADR-0007): validate the aggregate before side effects; reject -> rollback.
+    verdict = None
+    if robustness is not None:
+        verdict = _robustness_evaluate(aggregate, robustness, previous_score=previous_score)
+        if not verdict.accepted:
+            entry = ledger.append(
+                "consortium-round-rejected",
+                {
+                    "round_id": round_id,
+                    "mode": "secure",
+                    "reason": verdict.reason,
+                    "score": verdict.metrics.score,
+                    "canary_pass": verdict.metrics.canary_pass,
+                    "n_survivors": len(survivors),
+                },
+            )
+            return SecureConsortiumResult(
+                round_id=round_id,
+                aggregate=aggregate,
+                aggregate_field=agg_field,
+                survivors=survivors,
+                survivor_signers=signers,
+                max_epsilon=0.0,
+                delta=delta,
+                per_silo_charge={},
+                approvers=[],
+                ledger_seq=entry.seq,
+                evidence_path=None,
+                applied=False,
+                robustness=verdict,
+            )
+
     # 5. Governance: worst-case ε gates MPA; per-silo charge; one signed D4; commitments-only entry.
     gating = max((dp_results[s] for s in survivors), key=lambda r: r.epsilon)
     max_epsilon = gating.epsilon
@@ -546,6 +584,7 @@ def run_secure_consortium_round(
         survivor_signers=signers,
         max_epsilon=max_epsilon,
         delta=delta,
+        robustness=verdict,
         per_silo_charge=per_silo_charge,
         approvers=approvers,
         ledger_seq=entry.seq,
@@ -636,6 +675,8 @@ class GODConsortiumResult:
     approvers: list[str]
     ledger_seq: int
     evidence_path: Path | None
+    applied: bool = True
+    robustness: RobustnessVerdict | None = None
 
 
 def run_god_consortium_round(
@@ -658,6 +699,8 @@ def run_god_consortium_round(
     holder_overrides: Mapping[Hashable, Mapping[int, int]] | None = None,
     clip_bound: float | None = None,
     l2_bound: float | None = None,
+    robustness: RobustnessPolicy | None = None,
+    previous_score: float | None = None,
     rng=None,
 ) -> GODConsortiumResult:
     """Run a guaranteed-output-delivery round (honest majority ``n ≥ 2*threshold-1``).
@@ -750,6 +793,40 @@ def run_god_consortium_round(
     q = group.q
     aggregate = [(v - q if v > q // 2 else v) / scale for v in god.aggregate_field]
 
+    # Robustness gate (ADR-0007): validate the *aggregate* candidate before any side effects;
+    # a rejected round is rolled back (no charge, no evidence) and flagged on the ledger.
+    verdict = None
+    if robustness is not None:
+        verdict = _robustness_evaluate(aggregate, robustness, previous_score=previous_score)
+        if not verdict.accepted:
+            entry = ledger.append(
+                "consortium-round-rejected",
+                {
+                    "round_id": round_id,
+                    "mode": "god",
+                    "reason": verdict.reason,
+                    "score": verdict.metrics.score,
+                    "canary_pass": verdict.metrics.canary_pass,
+                    "n_parties": n,
+                    "n_included": len(god.included),
+                },
+            )
+            return GODConsortiumResult(
+                round_id=round_id,
+                aggregate=aggregate,
+                aggregate_field=god.aggregate_field,
+                included=god.included,
+                excluded=list(god.excluded) + norm_excluded,
+                max_epsilon=0.0,
+                delta=delta,
+                per_silo_charge={},
+                approvers=[],
+                ledger_seq=entry.seq,
+                evidence_path=None,
+                applied=False,
+                robustness=verdict,
+            )
+
     # Governance over the *delivered* (included) set.
     gating = max((dp_results[p] for p in god.included), key=lambda r: r.epsilon)
     max_epsilon = gating.epsilon
@@ -835,4 +912,5 @@ def run_god_consortium_round(
         approvers=approvers,
         ledger_seq=entry.seq,
         evidence_path=out_path,
+        robustness=verdict,
     )
