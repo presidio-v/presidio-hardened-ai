@@ -212,6 +212,45 @@ guard; `0600`/`0700` file permissions.
 
 ---
 
+## Working with us
+
+`presidio-hardened-ai` is past proof-of-concept. The full P1–P4 stack is built and verified
+end to end: per-client differential-privacy accounting with tamper-evident ε-budgets, n-of-m
+authorized (MPA-gated) training, malicious-secure consortium rounds with guaranteed output
+delivery, zero-knowledge bounded-norm input validation (L∞ and L2, enforcing the exact DP clip
+sensitivity), Ed25519-signed evidence, and cross-suite verification by
+`presidio-hardened-ikigov-assess` from the public key alone. We are now selecting a small number
+of **initial design partners** to take it from verified to deployed. This is active outreach —
+we are choosing where to prove the system first, not asking for help.
+
+We are looking for four partner profiles, each matched to a seam that already exists in the
+code. **Federated-learning consortia** — several mutually-distrusting institutions that want a
+shared model without exposing raw data or individual updates — map directly onto the consortium
+round (`run_god_consortium_round`): honest-majority robust aggregation, no trusted coordinator,
+one signed `D4` per round. **Regulated data custodians** who need high-privacy-cost work gated by
+human or system sign-off use the n-of-m MPA control and per-silo ε-budgets. **Auditors and
+compliance teams** consume the other end — the tamper-evident ledger and the signed `D4`
+EvidenceRef, verifiable offline against a held public key, with `ikigov` turning it into a
+framework-mapped assessment. **Cloud and on-prem ML infrastructure operators** are the partners
+who would exercise the heavier `[torch]`, `[mpc]`, and `[zk]` lanes on real hardware.
+
+Three concrete validations would close the loop with a partner: a first live consortium round
+aggregating *real model weights* across entities; an auditor *signing off from a signed `D4`
+alone*, with no access to the underlying data or training run; and *cross-entity DP-budget
+accountability*, with each participant's ε spend reconciled against the shared, tamper-evident
+ledger.
+
+To be precise about status: the cryptographic core, the governance flow, and the cross-suite
+evidence loop are tested and reproducible today on the pure-Python path. The native acceleration
+lanes — `[mpc]` (authenticated X25519 key agreement + transport) and `[zk]` (Ristretto255 +
+Bulletproofs) — are committed as audited-dependency source and validated by decision-equivalence
+tests, but their first production build and benchmarking is the immediate next step, and one we
+would take *with a partner's infrastructure*. Nothing here is claimed to be running in production
+yet — that is precisely what a design partnership is for.
+
+If one of these profiles is yours, reach out through the repository (open a discussion, or use
+the contact in [SECURITY.md](SECURITY.md)).
+
 ## Roadmap
 
 | Phase | Version | Theme |
