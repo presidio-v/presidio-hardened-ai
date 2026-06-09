@@ -17,8 +17,9 @@
 //! The two backends are NOT byte-compatible; CI cross-validates decision equivalence only.
 
 use bulletproofs::{BulletproofGens, PedersenGens, RangeProof};
-use curve25519_dalek::ristretto::CompressedRistretto;
+use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::traits::Identity;
 use merlin::Transcript;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -43,13 +44,10 @@ fn scalar_from_i64(value: i64) -> Scalar {
     }
 }
 
-fn point_from_bytes(bytes: &[u8]) -> PyResult<curve25519_dalek::ristretto::RistrettoPoint> {
-    if bytes.len() != 32 {
-        return Err(PyValueError::new_err("commitment must be 32 bytes"));
-    }
-    let mut b = [0u8; 32];
-    b.copy_from_slice(bytes);
-    CompressedRistretto(b)
+fn point_from_bytes(bytes: &[u8]) -> PyResult<RistrettoPoint> {
+    let compressed = CompressedRistretto::from_slice(bytes)
+        .map_err(|_| PyValueError::new_err("commitment must be 32 bytes"))?;
+    compressed
         .decompress()
         .ok_or_else(|| PyValueError::new_err("invalid Ristretto commitment"))
 }
@@ -82,7 +80,7 @@ fn pedersen_add(py: Python<'_>, a: &[u8], b: &[u8]) -> PyResult<PyObject> {
 
 #[pyfunction]
 fn pedersen_sum(py: Python<'_>, commitments: Vec<Vec<u8>>) -> PyResult<PyObject> {
-    let mut acc = curve25519_dalek::ristretto::RistrettoPoint::default();
+    let mut acc = RistrettoPoint::identity();
     for c in &commitments {
         acc += point_from_bytes(c)?;
     }
@@ -141,7 +139,7 @@ fn verify_bounded(
         Err(_) => return Ok(false),
     };
     let pc = PedersenGens::default();
-    let shift = scalar_from_i64(bound as i64) * pc.B; // bound·B_basepoint
+    let shift = pc.B * scalar_from_i64(bound as i64); // bound·B_basepoint
     // Shift each commitment-to-u into commitment-to-(u+bound), padding to a power of two
     // with commitments to 0 (the prover padded with zero values + zero blindings).
     let mut shifted: Vec<CompressedRistretto> = Vec::new();
@@ -181,7 +179,7 @@ fn pedersen_commit_scalar(py: Python<'_>, value_le: &[u8], blinding_le: &[u8]) -
     let pc = PedersenGens::default();
     let v = scalar_from_le(value_le)?;
     let r = scalar_from_le(blinding_le)?;
-    Ok(PyBytes::new_bound(py, (v * pc.B + r * pc.B_blinding).compress().as_bytes()).into())
+    Ok(PyBytes::new_bound(py, (pc.B * v + pc.B_blinding * r).compress().as_bytes()).into())
 }
 
 #[pymodule]

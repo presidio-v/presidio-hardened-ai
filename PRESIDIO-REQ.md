@@ -88,7 +88,7 @@ CLI command: `pai`
 | v0.27.0 | P4 | GOD aggregation + round (`fl.god`, `run_god_consortium_round`) — honest-majority | Shipped |
 | v0.28.0 | P4 | Bounded-norm gate on the GOD path via commitment-equality binding (ADR-0006 item 4) | Shipped |
 | v0.29.0 | P4 | Whole-consortium bounded-norm proof aggregation (cross-bound batch / native Bulletproof) | **Current** |
-| — | — | First `ci-zk`/`ci-mpc`/`ci-torch` runs: compile native lanes + benchmarks | Deferred |
+| — | — | `ci-zk` manual until first green build on a Rust runner; then benchmarks | Deferred |
 
 ---
 

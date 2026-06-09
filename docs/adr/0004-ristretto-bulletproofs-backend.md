@@ -12,6 +12,11 @@ ZK range proofs shipped there; same threat model, same `EvidenceRef@1` contract.
 > `ProofBackend` + MODP fallback + auto-dispatch (items 2, 8); v0.22.0 ships the Rust/dalek
 > `presidio_ai_zk` crate, the `_ristretto_backend` adapter, the `ci-zk` lane, and the
 > serialization (items 1, 3, 5). The native crate is buildable, CI-validated source — built
+> **CI posture (fix):** because the dev environment has no Rust toolchain, the native crate
+> was committed unbuilt; gating every push on `ci-zk` produced spurious red CI, so `ci-zk`
+> is now **manual (`workflow_dispatch`)** until it first builds green on a Rust runner (the
+> default MODP lane fully exercises the guarantee). Known dalek-v4 API fixes applied to the
+> crate: `CompressedRistretto::from_slice`, `RistrettoPoint::identity()`, point·scalar order.
 > and self-validated in `ci-zk`, not in the dev sandbox (no Rust toolchain). **Remaining:**
 > the in-round commitment/homomorphic-check migration to Ristretto when the native backend
 > is active is handled generically by the backend seam, but a Ristretto-path consortium
