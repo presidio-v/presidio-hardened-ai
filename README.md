@@ -162,9 +162,18 @@ pip install "presidio-hardened-ai[torch]"
 
 ```python
 from presidio_ai.dp import make_trainer, DPSGDConfig
-model = make_trainer("opacus").train(features, labels, DPSGDConfig(
-    noise_multiplier=1.1, sample_rate=0.01, steps=1000, delta=1e-5, clip_norm=1.0,
-))
+
+model = make_trainer("opacus").train(
+    features,
+    labels,
+    DPSGDConfig(
+        noise_multiplier=1.1,
+        sample_rate=0.01,
+        steps=1000,
+        delta=1e-5,
+        clip_norm=1.0,
+    ),
+)
 ```
 
 The Opacus backend trains real models on GPU/CPU and implements the same `DPTrainer`
@@ -196,8 +205,9 @@ export requires a signing key. Signatures are deterministic
 from presidio_ai import Ledger, PIIScrubber, ingest_records, build_ingest_evidence, export_evidence
 
 ledger = Ledger("audit/ledger.jsonl", key="…")
-result = ingest_records(records, source_id="crm-export", ledger=ledger,
-                        scrubber=PIIScrubber(action="redact"))
+result = ingest_records(
+    records, source_id="crm-export", ledger=ledger, scrubber=PIIScrubber(action="redact")
+)
 
 refs = build_ingest_evidence(result, ledger=ledger, signing_key="…", signer="prod")
 export_evidence(refs, "audit/evidence.json", use_case="fraud-scoring")

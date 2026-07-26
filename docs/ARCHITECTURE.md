@@ -109,19 +109,31 @@ single-node case.
 ```python
 # presidio-hardened-ai: one governed, malicious-secure consortium round
 from presidio_ai.fl.consortium import run_secure_consortium_round, sign_survivor_set
+
 res = run_secure_consortium_round(
-    round_id="round-1", updates=updates, dp_results=dp, session=session,  # verifiable-mode (Feldman VSS)
-    ledger=ledger, survivor_signatures=sigs, survivor_keys=skeys, survivor_threshold=2,
-    group=group, budgets=budgets, clip_bound=2.0,                          # ZK bounded-norm gate
-    signing_key=PRIV, signer="presidio-hardened-ai", algorithm="ed25519",
+    round_id="round-1",
+    updates=updates,
+    dp_results=dp,
+    session=session,  # verifiable-mode (Feldman VSS)
+    ledger=ledger,
+    survivor_signatures=sigs,
+    survivor_keys=skeys,
+    survivor_threshold=2,
+    group=group,
+    budgets=budgets,
+    clip_bound=2.0,  # ZK bounded-norm gate
+    signing_key=PRIV,
+    signer="presidio-hardened-ai",
+    algorithm="ed25519",
     evidence_path="consortium.evidence.json",
 )
 
 # presidio-hardened-ikigov-assess: verify the round's evidence with only the public key
 from presidio_ikigov_assess.evidence import load_evidence, load_trust_store, verify_ref
-refs  = load_evidence(open("consortium.evidence.json").read())
+
+refs = load_evidence(open("consortium.evidence.json").read())
 trust = load_trust_store('{"presidio-hardened-ai": {"alg": "ed25519", "public_key": "<PUB>"}}')
-assert verify_ref(refs[0], trust)        # D4 verifies; a tampered key fails closed
+assert verify_ref(refs[0], trust)  # D4 verifies; a tampered key fails closed
 ```
 
 Result (verified live against `presidio-hardened-ai` v0.20.0 + ikigov v0.19.0):
@@ -150,10 +162,19 @@ commitment-equality proof) screens each contribution, and one signed `D4` is emi
 
 ```python
 from presidio_ai.fl.consortium import run_god_consortium_round
+
 res = run_god_consortium_round(
-    round_id="god-1", updates=updates, dp_results=dp, threshold=3,   # honest-majority quorum t+1
-    ledger=ledger, group=group, budgets=budgets, l2_bound=2.0,        # exact DP clip norm, proven
-    signing_key=PRIV, signer="presidio-hardened-ai", algorithm="ed25519",
+    round_id="god-1",
+    updates=updates,
+    dp_results=dp,
+    threshold=3,  # honest-majority quorum t+1
+    ledger=ledger,
+    group=group,
+    budgets=budgets,
+    l2_bound=2.0,  # exact DP clip norm, proven
+    signing_key=PRIV,
+    signer="presidio-hardened-ai",
+    algorithm="ed25519",
     evidence_path="god.evidence.json",
 )
 # ikigov verifies the round's D4 with only the public key (verify_ref(refs[0], trust) == True)
