@@ -21,7 +21,7 @@ jobs:
     name: pytest [zk] native backend (Python 3.11)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v7
