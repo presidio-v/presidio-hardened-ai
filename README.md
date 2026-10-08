@@ -287,5 +287,8 @@ MIT — see [LICENSE](LICENSE).
 
 ## SDLC
 
-Developed under the Presidio hardened-family SDLC:
-<https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/sdlc-report.md>.
+This package is built to the **open-source baseline** controls of the PRESIDIO
+hardened-family SDLC ([report](https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/sdlc-report.md) ·
+[PDF](https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/sdlc-report.pdf)).
+It is published from a private repository, so it is tiered in PRESIDIO's internal register
+rather than the public [applicability matrix](https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/applicability.md).
