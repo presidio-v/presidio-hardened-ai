@@ -41,7 +41,8 @@ CLI command: `pai`
 - Restricted file permissions: ledger `0600`, `~/.presidio-ai/` `0700`.
 - Dependency CVE check via `pip-audit` (`audit`/`dev` extra).
 - Full GitHub security files: `SECURITY.md`, `.github/dependabot.yml`,
-  `.github/workflows/codeql.yml`, `.github/workflows/pytest.yml`.
+  `.github/workflows/codeql.yml`, `.github/workflows/ci.yml` (pytest + ruff; extras lanes
+  `ci-torch.yml`, `ci-mpc.yml`, `ci-zk.yml`).
 
 ## Technical Requirements
 
@@ -49,7 +50,7 @@ CLI command: `pai`
   `urllib3` in the dev/audit tree).
 - `pyproject.toml` + hatchling + Typer CLI; `src/presidio_ai/` layout.
 - 80%+ test coverage with pytest; ruff lint + format clean.
-- LICENSE = MIT. Version = 0.1.0.
+- LICENSE = MIT. Version = 0.30.0.
 
 ---
 
