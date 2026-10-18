@@ -57,12 +57,16 @@ python -m spacy download en_core_web_sm
 ## Quick start
 
 ```bash
+pip install "presidio-hardened-ai[crypto]"   # Ed25519, the default evidence signer
 export PRESIDIO_AI_LEDGER_KEY="$(openssl rand -hex 32)"
+pai keygen                       # -> private_key / public_key (hex); keep the private one secret
+export PRIVATE_HEX="<private_key>"
 
 # Scrub a source, record lineage, and export signed D1/D4/O5 evidence.
 pai ingest --source crm-export --input data.jsonl \
     --ledger audit/ledger.jsonl --out scrubbed.jsonl \
-    --evidence-out audit/evidence.json --use-case fraud-scoring
+    --evidence-out audit/evidence.json --use-case fraud-scoring \
+    --signing-key "$PRIVATE_HEX"
 
 # Verify the ledger chain (any tamper breaks it).
 pai verify --ledger audit/ledger.jsonl
@@ -82,12 +86,12 @@ iga assess --use-case fraud-scoring --risk-class high \
 ```bash
 # Account the (epsilon, delta) cost of a planned DP-SGD run.
 pai dp-account --noise-multiplier 1.1 --sample-rate 0.0043 --steps 5000 --delta 1e-5
-#   epsilon = 1.83  (optimal RDP order 12)
+#   epsilon = 1.52  (optimal RDP order 11)
 
 # Charge a job against a tamper-evident org epsilon budget, emit D4 evidence.
 pai dp-charge --ledger audit/ledger.jsonl --total-epsilon 10 --job-id fraud-ft \
     --noise-multiplier 1.1 --sample-rate 0.0043 --steps 5000 \
-    --evidence-out audit/dp-evidence.json
+    --evidence-out audit/dp-evidence.json --signing-key "$PRIVATE_HEX"
 
 pai dp-budget --ledger audit/ledger.jsonl --total-epsilon 10   # spent / remaining
 ```
@@ -126,8 +130,9 @@ Exit codes: `2` budget exceeded, `3` authorization denied.
 # Train a DP-SGD logistic model, charge the org budget, export D4 evidence.
 pai dp-train --input data.jsonl --ledger audit/ledger.jsonl --total-epsilon 10 \
     --job-id fraud-ft --noise-multiplier 1.1 --sample-rate 0.01 --steps 1000 \
-    --clip-norm 1.0 --lr 0.1 --evidence-out audit/dp-evidence.json
-#   Trained 'fraud-ft': accuracy=0.94  epsilon=1.83
+    --clip-norm 1.0 --lr 0.1 --evidence-out audit/dp-evidence.json \
+    --signing-key "$PRIVATE_HEX"
+#   Trained 'fraud-ft': accuracy=0.94  epsilon=1.73
 ```
 
 `data.jsonl` is one `{"x": [floats], "y": 0|1}` per line. The default trainer is a
@@ -142,10 +147,10 @@ plugs into the same `DPTrainer` interface behind the optional `[torch]` extra.
 # Train across silos whose data never leaves them; report per-silo DP cost.
 pai fl-train --silo eu.jsonl --silo us.jsonl --rounds 10 --local-steps 50 \
     --charge --total-epsilon 10 --ledger-dir audit/fl/ \
-    --evidence-dir audit/fl-evidence/ --signing-key "$PRIV_HEX" \
+    --evidence-dir audit/fl-evidence/ --signing-key "$PRIVATE_HEX" \
     --noise-multiplier 1.1 --sample-rate 0.01 --secure-agg
 #   pooled accuracy: 0.93
-#   eu: epsilon=1.83 over 500 steps   us: epsilon=1.83 over 500 steps
+#   eu: epsilon=1.32 over 500 steps   us: epsilon=1.32 over 500 steps
 ```
 
 Each `--silo` is a `{"x":[...],"y":0|1}` JSONL file. Silos train locally (DP-SGD) from the
