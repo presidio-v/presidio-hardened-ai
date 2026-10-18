@@ -108,15 +108,16 @@ Require sign-off before a high-privacy-risk run spends budget:
 
 ```bash
 # Each approver countersigns the job (out of band):
-pai dp-authorize --job-id fraud-ft --noise-multiplier 1.0 --sample-rate 0.05 \
+pai dp-authorize --job-id fraud-ft --noise-multiplier 1.0 --sample-rate 0.02 \
     --steps 2000 --approver alice --approver-key "$ALICE_KEY" --quiet
 #   -> {"approval": "alice:<hexsig>", ...}
 
 # The charge requires 2-of-3 approvals at/above epsilon 0:
 pai dp-charge --ledger audit/ledger.jsonl --total-epsilon 10 --job-id fraud-ft \
-    --noise-multiplier 1.0 --sample-rate 0.05 --steps 2000 \
+    --noise-multiplier 1.0 --sample-rate 0.02 --steps 2000 \
     --mpa-threshold 2 --mpa-min-epsilon 0 --approver-keys approvers.json \
     --approval alice:<hexsig> --approval bob:<hexsig>
+#   Charged job 'fraud-ft': epsilon=6.1631
 ```
 
 Approvals are HMAC countersignatures bound to the job's privacy parameters (no
