@@ -51,7 +51,11 @@ used **only** to verify:
   tries the tagged request first; if its approvals fall short of the threshold it tries
   the untagged legacy request (`_legacy_request_v0`). A charge is authorized by one
   form or the other, never by a mix. The `mpa-authorized` ledger entry records which in
-  `request_canon` (`1` or `0`).
+  `request_canon` (`1` or `0`). A legacy request binds the raw float epsilon, which is
+  recomputed at charge time, so pre-0.31 approvals authorize only where the accountant
+  reproduces that float bit for bit, in practice the same platform and library versions
+  that produced it. Anywhere else the charge is denied (fail-closed); collect new,
+  tagged approvals instead.
 
 `EpsilonBudget.spent()` sums legacy float epsilons and new decimal-string epsilons
 exactly (`decimal.Decimal`).

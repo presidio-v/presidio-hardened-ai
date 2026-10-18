@@ -9,13 +9,15 @@ are never rewritten, by these tests or by the code.
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import math
 import shutil
 from pathlib import Path
 
 import pytest
 
-from presidio_ai.dp import EpsilonBudget, MPAPolicy, dpsgd_epsilon
+from presidio_ai.dp import DPResult, EpsilonBudget, MPAPolicy
 from presidio_ai.dp.authorization import (
     MPADenied,
     _legacy_request_v0,
@@ -125,14 +127,27 @@ def test_new_ledger_entries_reject_floats(tmp_path):
 
 
 def _pending():
-    job = APPROVALS["pending_job"]
-    result = dpsgd_epsilon(
-        noise_multiplier=job["noise_multiplier"],
-        sample_rate=job["sample_rate"],
-        steps=job["steps"],
-        delta=job["delta"],
-    )
-    return job["job_id"], result
+    # The result the approvers countersigned, bit for bit. Recomputing it with
+    # dpsgd_epsilon reproduces epsilon only on the platform that generated the
+    # fixture: the last float digits differ between macOS and Linux runners.
+    request = dict(APPROVALS["pending_request"])
+    job_id = request.pop("job_id")
+    return job_id, DPResult(**request)
+
+
+def test_legacy_approvals_fail_closed_when_epsilon_differs_in_the_last_bit():
+    """A legacy request binds the float itself; any drift denies rather than authorizes."""
+    job_id, result = _pending()
+    drifted = dataclasses.replace(result, epsilon=math.nextafter(result.epsilon, math.inf))
+    policy = MPAPolicy(threshold=2, min_epsilon=0.5, approvers=tuple(sorted(APPROVER_KEYS)))
+    with pytest.raises(MPADenied):
+        authorize_request(
+            drifted,
+            job_id=job_id,
+            policy=policy,
+            approvals=APPROVALS["pending_approvals"],
+            approver_keys=APPROVER_KEYS,
+        )
 
 
 def test_legacy_request_hash_is_reproduced():
