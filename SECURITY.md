@@ -72,6 +72,22 @@ changing the `EvidenceRef` shape, which matches the
 `presidio-hardened-ikigov-assess` v0.13.0 contract verbatim.
 
 
+### Canonical encoding and provenance (v0.31.0)
+
+- **Strict canonical JSON.** Every new hash, ledger MAC and authorization request is
+  computed over the family Layer-0 strict profile (floats and NaN rejected), checked
+  against presidio-evidence's golden vectors. Privacy parameters are decimal strings at
+  declared precisions; a non-zero delta or sample rate that would round to zero is
+  refused rather than recorded as a stronger guarantee.
+- **No silent downgrade.** Ledger entries carry a MAC-covered `canon: 1` tag. Untagged
+  (pre-0.31) entries verify through a frozen legacy encoder that never produces new
+  bytes; an untagged entry after a tagged one, or an unknown tag, fails closed. Pre-0.31
+  approvals count only as a complete set over the legacy request, never mixed with new
+  ones. Removal of the legacy path is tracked in #74.
+- **Provenance parents** are validated (lowercase hex, 8 to 128 chars) before any ledger
+  write and sit inside the hashed content, so rewiring lineage breaks the hash and the
+  signature. The producer does not resolve them.
+
 ### High-ε authorization (v0.3.0)
 
 - **n-of-m approval** gates budget charges at/above a configured ε threshold, reusing the
