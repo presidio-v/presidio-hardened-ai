@@ -8,9 +8,11 @@ from presidio_ai.evidence import (
     EvidenceRef,
     build_ingest_evidence,
     export_evidence,
+    ingest_evidence_content,
     sign_evidence,
     verify_evidence,
 )
+from presidio_ai.hashing import sha256_hex
 from presidio_ai.ingest import ingest_records
 from presidio_ai.ledger import Ledger
 
@@ -79,7 +81,9 @@ def test_d1_commits_to_content_hash_o5_to_head(tmp_path):
             result, ledger=ledger, signing_key=SIGNING, signer="prod", algorithm="hmac-sha256"
         )
     }
-    assert refs["D1"].content_hash == result.content_hash
+    assert refs["D1"].content_hash == sha256_hex(ingest_evidence_content(result))
+    assert refs["D4"].content_hash == refs["D1"].content_hash
+    assert ingest_evidence_content(result)["content_hash"] == result.content_hash
     assert refs["O5"].content_hash == ledger.head_hash
 
 

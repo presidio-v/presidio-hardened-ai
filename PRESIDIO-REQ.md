@@ -89,7 +89,8 @@ CLI command: `pai`
 | v0.27.0 | P4 | GOD aggregation + round (`fl.god`, `run_god_consortium_round`) — honest-majority | Shipped |
 | v0.28.0 | P4 | Bounded-norm gate on the GOD path via commitment-equality binding (ADR-0006 item 4) | Shipped |
 | v0.29.0 | P4 | Whole-consortium bounded-norm proof aggregation (cross-bound batch / native Bulletproof) | Shipped |
-| v0.30.0 | P4 | Byzantine-ML robustness gate: aggregate validation + rollback + canary (`fl.robustness`) — ADR-0007 | **Current** |
+| v0.30.0 | P4 | Byzantine-ML robustness gate: aggregate validation + rollback + canary (`fl.robustness`) — ADR-0007 | Shipped |
+| v0.31.0 | — | Strict canonical JSON + decimal-string privacy parameters (#68); ADR-0002 provenance `parents` + `--parent` (#67) | **Current** (unreleased) |
 | — | — | `ci-zk` manual until first green build on a Rust runner; then benchmarks | Deferred |
 
 ---
@@ -827,6 +828,58 @@ MPC (A) for a malicious majority of contributions.
 
 ---
 
+## v0.31.0 — Strict Canonical Encoding + Provenance Parents (#68, #67)
+
+Two integration gaps from the 2026-10-10 portfolio review, closed together because both
+change what the D4 content hash covers.
+
+**#68 — floats in hashed payloads.** `hashing.py` duplicated the family Layer-0
+canonicaliser without its float rejection (presidio-evidence ADR-0001 D1), and D4 DP and
+consortium content, authorization requests and ledger MACs all hashed Python floats.
+Other implementations (presidio-evidence, treasury's Rust canonicaliser) refuse such
+content, so the D4 refs could not sit in the shared evidence DAG.
+
+- **R-C1 Strict profile for all new bytes.** `canonical_json` = sorted keys, compact
+  separators, UTF-8, `allow_nan=False`, floats rejected at any depth. Verified against
+  presidio-evidence's `canonical-json` (incl. rejected-float cases) and `signing` vectors,
+  copied into `tests/vectors/` with a provenance note.
+- **R-C2 Decimal strings (family ADR-0005 draft).** Non-integer values in signed payloads
+  are plain-notation decimal strings, half-even at a per-field precision declared in
+  `docs/schemas/signed-payloads.md` and encoded by one helper (`numeric.encode_field`):
+  epsilon / max_epsilon / noise_multiplier / score / proven bounds 12 fractional digits;
+  delta and sample_rate 18 (small probabilities); optimal_order 6, always a string (both
+  order grids are multiples of 0.25). NaN/Infinity rejected; a non-zero delta or
+  sample_rate that would round to `"0"` is rejected (it would overstate the guarantee).
+- **R-C3 Legacy verification, no rewrite.** New ledger entries and authorization requests
+  carry `canon: 1`. Untagged entries and pre-0.31 approvals verify through the frozen
+  `_legacy_canonical_v0`, which never produces new bytes. Untagged-after-tagged and
+  unknown tags are rejected. Removal trigger in `MIGRATION.md` (#74).
+- **R-C4 Ingest hashes data bytes.** Source commitment over the input bytes as read
+  (`raw-input-bytes`); scrubbed `content_hash` over `records-jsonl@1`, which `--out`
+  writes byte-for-byte. Scopes recorded in the ledger entry and the evidence content.
+
+**#67 — no provenance parents.** D4 refs from `dp-train` and the consortium round could
+not name the ikigov gate certificate or dataset they were produced under, so the
+storyline's gate → training-run edge was missing exactly where training happens.
+
+- **R-P1** Top-level `parents` (ADR-0002 P1–P5) in DP (`dp-result@1`), consortium
+  (`consortium-round@1`) and ingest (`ingest-record@1`) evidence content and the matching
+  ledger entries: lowercase hex `^[0-9a-f]{8,128}$`, order-preserving, de-duplicated,
+  omitted when empty, malformed entries rejected before any side effect, not resolved by
+  the producer.
+- **R-P2** Repeatable `--parent HEX` on `pai ingest`, `dp-train`, `dp-charge`,
+  `consortium-round`; exit 1 on a malformed value.
+- **R-P3** Parent-less content hashes are identical to the same record without the
+  feature; two are pinned in `tests/test_provenance.py`.
+- **Deferred:** `--gate-certificate` (verify the ikigov gate certificate before training)
+  waits for family ADR-0006; a `training-run@1` payload is not emitted yet.
+
+**Consequence:** content hashes of new DP/consortium/ingest refs differ from 0.30.0 for
+the same run; existing refs still verify (their signatures are over float-free
+`{content_hash, signer}`). The `EvidenceRef@1` contract is unchanged.
+
+---
+
 ## Cross-cutting decisions
 
 | Decision | Rationale |
@@ -835,6 +888,7 @@ MPC (A) for a malicious majority of contributions.
 | Keyed MAC mandatory | An unkeyed hash chain is forgeable; tamper-evidence requires a secret |
 | `EvidenceRef` owned here, consumed by ikigov | The governance spine stays framework-pure; each control owns and versions its own item→evidence map |
 | Evidence is provenance, not score | Maturity (how complete) and evidence coverage (how verifiable) are orthogonal |
+| Strict canonical JSON, decimal strings (v0.31.0) | A hash other family implementations cannot recompute is not evidence; floats have no portable canonical form |
 
 ## SDLC
 

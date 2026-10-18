@@ -1,8 +1,14 @@
 """Tamper-evident, append-only privacy ledger (HMAC-chained JSON-L).
 
 Each entry is one JSON object per line. Its ``entry_hash`` is the HMAC-SHA256 over
-the canonical encoding of ``(seq, timestamp, event, payload, prev_hash)``; the first
-entry chains from a fixed genesis. Any insertion, deletion, reordering, or in-place
+the canonical encoding of ``(canon, seq, timestamp, event, payload, prev_hash)``; the
+first entry chains from a fixed genesis.
+
+``canon`` names the canonicaliser the MAC was computed over. Entries written since
+0.31 carry ``canon: 1`` (strict profile, floats rejected) and the tag is itself
+covered by the MAC, so it cannot be stripped. Entries without the tag were written
+before 0.31 and verify through the frozen legacy encoder; their stored bytes are
+never rewritten (see ``MIGRATION.md``). Any insertion, deletion, reordering, or in-place
 edit breaks the chain and is detected by :func:`verify_chain`.
 
 Invariant: ``payload`` carries **commitments and structural metadata only** — hashes,
@@ -19,7 +25,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from presidio_ai.hashing import constant_time_equals, hmac_hex
+from presidio_ai.hashing import (
+    CANON_LEGACY,
+    CANON_STRICT,
+    CanonicalError,
+    constant_time_equals,
+    hmac_hex,
+)
 
 GENESIS_HASH = "0" * 64
 _KEY_ENV = "PRESIDIO_AI_LEDGER_KEY"
@@ -37,16 +49,31 @@ class LedgerEntry:
     payload: dict[str, Any]
     prev_hash: str
     entry_hash: str
+    canon: int | None = None  # None: untagged pre-0.31 entry (legacy encoder)
 
     def signed_view(self) -> dict[str, Any]:
         """The fields covered by ``entry_hash`` (everything except the hash itself)."""
-        return {
+        view: dict[str, Any] = {
             "seq": self.seq,
             "timestamp": self.timestamp,
             "event": self.event,
             "payload": self.payload,
             "prev_hash": self.prev_hash,
         }
+        if self.canon is not None:
+            view["canon"] = self.canon
+        return view
+
+    @property
+    def effective_canon(self) -> int:
+        return CANON_LEGACY if self.canon is None else self.canon
+
+    def to_record(self) -> dict[str, Any]:
+        """The stored JSON-L object (an untagged entry stays untagged)."""
+        record = asdict(self)
+        if self.canon is None:
+            record.pop("canon")
+        return record
 
 
 def _resolve_key(key: bytes | str | None) -> bytes:
@@ -110,8 +137,12 @@ class Ledger:
             "event": event,
             "payload": payload,
             "prev_hash": self._last_hash,
+            "canon": CANON_STRICT,
         }
-        entry_hash = hmac_hex(self._key, signed)
+        try:
+            entry_hash = hmac_hex(self._key, signed)
+        except CanonicalError as exc:
+            raise LedgerError(f"ledger payload for {event!r} is not canonical: {exc}") from exc
         entry = LedgerEntry(entry_hash=entry_hash, **signed)
         self._write(entry)
         self._seq += 1
@@ -124,7 +155,7 @@ class Ledger:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         new = not self.path.exists()
         with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+            fh.write(json.dumps(entry.to_record(), ensure_ascii=False, allow_nan=False) + "\n")
         if new:
             os.chmod(self.path, 0o600)
 
@@ -156,12 +187,23 @@ def verify_chain(path: str | Path, key: bytes | str | None = None) -> list[Ledge
 
     entries = list(ledger._iter_entries())
     prev = GENESIS_HASH
+    seen_tagged = False
     for i, entry in enumerate(entries):
         if entry.seq != i:
             raise LedgerError(f"non-contiguous seq at position {i}: got {entry.seq}")
         if entry.prev_hash != prev:
             raise LedgerError(f"broken link at seq {entry.seq}: prev_hash mismatch")
-        recomputed = hmac_hex(resolved, entry.signed_view())
+        if entry.canon is not None and entry.canon != CANON_STRICT:
+            raise LedgerError(f"unsupported canon tag at seq {entry.seq}: {entry.canon!r}")
+        if entry.canon is None and seen_tagged:
+            # Legacy entries can only precede the first tagged one; an untagged entry
+            # after it would be a downgrade to the float-tolerant encoder.
+            raise LedgerError(f"untagged entry at seq {entry.seq} after a canon-tagged entry")
+        seen_tagged = seen_tagged or entry.canon is not None
+        try:
+            recomputed = hmac_hex(resolved, entry.signed_view(), canon=entry.effective_canon)
+        except CanonicalError as exc:
+            raise LedgerError(f"unverifiable entry at seq {entry.seq}: {exc}") from exc
         if not constant_time_equals(recomputed, entry.entry_hash):
             raise LedgerError(f"tampered entry at seq {entry.seq}: MAC mismatch")
         prev = entry.entry_hash

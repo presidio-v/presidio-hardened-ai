@@ -31,6 +31,8 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from presidio_ai.numeric import encode_field
+
 # Candidate integer Rényi orders. A wide range lets the RDP->epsilon conversion
 # pick the tightest order across noise/rate/steps regimes; cost is negligible.
 DEFAULT_ORDERS: tuple[int, ...] = tuple(range(2, 257))
@@ -74,6 +76,23 @@ class DPResult:
             "noise_multiplier": self.noise_multiplier,
             "sample_rate": self.sample_rate,
             "steps": self.steps,
+            "accountant": self.accountant,
+        }
+
+    def signed_dict(self) -> dict[str, int | str]:
+        """The float-free form for signed payloads (schema ``dp-result@1``).
+
+        Non-integer parameters become decimal strings at their declared precision
+        (:data:`presidio_ai.numeric.PRECISION`); ``steps`` stays a JSON integer. Use
+        :meth:`as_dict` for display only: its floats are rejected by the canonicaliser.
+        """
+        return {
+            "epsilon": encode_field("epsilon", self.epsilon),
+            "delta": encode_field("delta", self.delta),
+            "optimal_order": encode_field("optimal_order", self.optimal_order),
+            "noise_multiplier": encode_field("noise_multiplier", self.noise_multiplier),
+            "sample_rate": encode_field("sample_rate", self.sample_rate),
+            "steps": int(self.steps),
             "accountant": self.accountant,
         }
 

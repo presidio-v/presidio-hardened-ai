@@ -1,0 +1,16 @@
+Golden vectors copied verbatim from presidio-evidence (append-only, ADR-0001 D5).
+
+Source:  https://github.com/presidio-v/presidio-evidence
+Commit:  c5dba8be30d04f7e39fbd5ff19ae69307fbdf539 (copied 2026-10-18)
+
+  tests/vectors/canonical-json/vectors.json          <- vectors/canonical-json/vectors.json
+  tests/vectors/signing/hmac-sha256-golden.json      <- vectors/signing/hmac-sha256-golden.json
+  tests/vectors/signing/ed25519-golden.json          <- vectors/signing/ed25519-golden.json
+
+sha256 at copy time:
+  921b8127e8fc3a1dd18a84b06df554f2bd3a2c3a544fe586c1cd6c26810c3c82  canonical-json/vectors.json
+  89ad270a83d4abba8b716fc95e68fbf893d13993587dc341749df1cdfb64511b  signing/hmac-sha256-golden.json
+  6f3cf23892d16b017bb48a672db3c5ca54a364c843c7377410ceec08f3501baf  signing/ed25519-golden.json
+
+Do not edit these files. If presidio-evidence publishes new vectors, copy them in as
+new files and update this note. Exercised by tests/test_canonical_conformance.py.

@@ -15,6 +15,7 @@ later phases so the export never overstates what the ledger proves.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,8 @@ from presidio_ai import __version__
 from presidio_ai.hashing import canonical_bytes, constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ingest import IngestResult
 from presidio_ai.ledger import Ledger
+from presidio_ai.numeric import encode_field
+from presidio_ai.provenance import with_parents
 
 SOURCE = "presidio-hardened-ai"
 
@@ -144,6 +147,26 @@ def _make_ref(
     )
 
 
+def ingest_evidence_content(result: IngestResult) -> dict[str, object]:
+    """The hashed content behind ingest D1/D4 refs (schema ``ingest-record@1``).
+
+    Commitments and counts only, no field values. ``parents`` is omitted when empty.
+    """
+    return with_parents(
+        {
+            "source_id": result.source_id,
+            "n_records": result.n_records,
+            "n_fields_scrubbed": result.n_fields_scrubbed,
+            "redaction_counts": dict(sorted(result.redaction_counts.items())),
+            "source_commitment": result.source_commitment,
+            "source_commitment_scope": result.source_commitment_scope,
+            "content_hash": result.content_hash,
+            "content_hash_scope": result.content_hash_scope,
+        },
+        result.parents,
+    )
+
+
 def build_ingest_evidence(
     result: IngestResult,
     *,
@@ -154,14 +177,17 @@ def build_ingest_evidence(
 ) -> list[EvidenceRef]:
     """Build signed D1/D4/O5 evidence references from an ingest result.
 
-    D1 and D4 commit to the scrubbed-content hash of the ingested source; O5 commits
-    to the current ledger head (the tamper-evident chain tip). The ``ledger_ref`` is
-    an opaque, commitment-based pointer — never a path that could leak content.
+    D1 and D4 commit to the ingest record (:func:`ingest_evidence_content`): the
+    scrubbed-content hash, the source commitment, the scope each hash covers, and
+    the record's ``parents``. O5 commits to the current ledger head (the
+    tamper-evident chain tip). The ``ledger_ref`` is an opaque, commitment-based
+    pointer — never a path that could leak content.
     """
     ingest_ref = f"pai-ledger:seq/{result.ledger_seq}"
+    record_hash = sha256_hex(ingest_evidence_content(result))
     refs = [
-        _make_ref("D1", result.content_hash, ingest_ref, signing_key, signer, algorithm),
-        _make_ref("D4", result.content_hash, ingest_ref, signing_key, signer, algorithm),
+        _make_ref("D1", record_hash, ingest_ref, signing_key, signer, algorithm),
+        _make_ref("D4", record_hash, ingest_ref, signing_key, signer, algorithm),
         _make_ref("O5", ledger.head_hash, "pai-ledger:head", signing_key, signer, algorithm),
     ]
     return refs
@@ -192,6 +218,11 @@ SUPPORTED_DP_ITEMS: dict[str, str] = {
 }
 
 
+def dp_evidence_content(result, *, parents: Iterable[str] | None = None) -> dict[str, object]:
+    """The hashed content behind a DP D4 ref (schema ``dp-result@1`` + ``parents``)."""
+    return with_parents(result.signed_dict(), parents)
+
+
 def build_dp_evidence(
     result,
     *,
@@ -199,14 +230,16 @@ def build_dp_evidence(
     signer: str,
     charge_seq: int,
     algorithm: str = "ed25519",
+    parents: Iterable[str] | None = None,
 ):
     """Build a signed D4 EvidenceRef from a DP accounting result.
 
     ``result`` is a ``presidio_ai.dp.accountant.DPResult``; ``charge_seq`` is the
     ledger sequence of the budget-charge entry the evidence points at. The content
-    hash commits to the privacy parameters (epsilon, delta, noise, rate, steps).
+    hash commits to the privacy parameters (epsilon, delta, noise, rate, steps) as
+    decimal strings, plus any ADR-0002 ``parents`` (:func:`dp_evidence_content`).
     """
-    content_hash = sha256_hex(result.as_dict())
+    content_hash = sha256_hex(dp_evidence_content(result, parents=parents))
     ledger_ref = f"pai-ledger:seq/{charge_seq}"
     return [_make_ref("D4", content_hash, ledger_ref, signing_key, signer, algorithm)]
 
@@ -229,21 +262,26 @@ def consortium_commitment(
     delta: float,
     n_parties: int,
     n_survivors: int,
+    parents: Iterable[str] | None = None,
 ) -> dict[str, object]:
     """Canonical, content-free commitment for a secure-aggregation round.
 
     Commits to the *aggregate* (the exact field-domain sum), the round's worst-case
-    per-party ``(epsilon, delta)``, and the participation counts — never an
-    individual update.
+    per-party ``(epsilon, delta)`` as decimal strings (schema ``consortium-round@1``),
+    the participation counts, and any ADR-0002 ``parents`` (omitted when empty) —
+    never an individual update.
     """
-    return {
-        "round_id": round_id,
-        "aggregate_sha256": sha256_hex({"agg": list(aggregate_field)}),
-        "max_epsilon": max_epsilon,
-        "delta": delta,
-        "n_parties": n_parties,
-        "n_survivors": n_survivors,
-    }
+    return with_parents(
+        {
+            "round_id": round_id,
+            "aggregate_sha256": sha256_hex({"agg": list(aggregate_field)}),
+            "max_epsilon": encode_field("max_epsilon", max_epsilon),
+            "delta": encode_field("delta", delta),
+            "n_parties": n_parties,
+            "n_survivors": n_survivors,
+        },
+        parents,
+    )
 
 
 def build_consortium_evidence(

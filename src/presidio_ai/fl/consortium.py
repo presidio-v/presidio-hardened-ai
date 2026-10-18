@@ -29,14 +29,19 @@ deployment each silo masks locally with seeds from authenticated key agreement
 from __future__ import annotations
 
 import secrets
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from presidio_ai.dp.accountant import DPResult
-from presidio_ai.dp.authorization import MPAPolicy, authorize, requires_authorization
-from presidio_ai.dp.budget import AUTHORIZED_EVENT, ChargeResult, EpsilonBudget
+from presidio_ai.dp.authorization import MPAPolicy, authorize_request, requires_authorization
+from presidio_ai.dp.budget import (
+    AUTHORIZED_EVENT,
+    ChargeResult,
+    EpsilonBudget,
+    authorization_payload,
+)
 from presidio_ai.evidence import (
     build_consortium_evidence,
     consortium_commitment,
@@ -59,6 +64,8 @@ from presidio_ai.fl.zk import (
 )
 from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
 from presidio_ai.ledger import Ledger
+from presidio_ai.numeric import encode_field
+from presidio_ai.provenance import normalize_parents, with_parents
 
 CONSORTIUM_EVENT = "consortium-round"
 SURVIVOR_SET_EVENT = "consortium-survivor-set"
@@ -74,6 +81,17 @@ class PartyMisbehavior(ConsortiumError):
     def __init__(self, party_id, message: str) -> None:
         super().__init__(message)
         self.party_id = party_id
+
+
+def _per_silo_epsilon(
+    dp_results: Mapping[Hashable, DPResult], parties: Iterable[Hashable]
+) -> dict[str, str]:
+    """Per-silo epsilon for the round ledger entry, as decimal strings."""
+    return {str(p): encode_field("epsilon", dp_results[p].epsilon) for p in parties}
+
+
+def _optional_decimal(name: str, value: float | None) -> str | None:
+    return None if value is None else encode_field(name, value)
 
 
 @dataclass(frozen=True)
@@ -107,10 +125,12 @@ def run_consortium_round(
     signer: str = "presidio-hardened-ai",
     algorithm: str = "ed25519",
     evidence_path: str | Path | None = None,
+    parents: Iterable[str] | None = None,
 ) -> ConsortiumRoundResult:
     """Run one governed secure-aggregation round. See the module docstring for the flow."""
     if not round_id:
         raise ConsortiumError("round_id must be non-empty")
+    parent_list = normalize_parents(parents)  # fail closed before any side effect
     survivors = [p for p in session.party_ids if p in updates]
     if not survivors:
         raise ConsortiumError("no surviving updates to aggregate")
@@ -128,7 +148,7 @@ def run_consortium_round(
     # 1. Authorize the round (n-of-m), bound to (round_id, gating privacy params).
     approvers: list[str] = []
     if requires_authorization(policy, max_epsilon):
-        _req_hash, approved = authorize(
+        _req_hash, approved, _req_canon = authorize_request(
             gating,
             job_id=f"consortium/{round_id}",
             policy=policy,
@@ -138,13 +158,14 @@ def run_consortium_round(
         approvers = list(approved)
         ledger.append(
             AUTHORIZED_EVENT,
-            {
-                "job_id": f"consortium/{round_id}",
-                "epsilon": max_epsilon,
-                "threshold": policy.threshold,
-                "approvers": approvers,
-                "request_hash": _req_hash,
-            },
+            authorization_payload(
+                job_id=f"consortium/{round_id}",
+                epsilon=max_epsilon,
+                threshold=policy.threshold,
+                approvers=approvers,
+                request_hash=_req_hash,
+                request_canon=_req_canon,
+            ),
         )
 
     # 2. Secure aggregation (exact field domain; coordinator sees only the aggregate).
@@ -172,19 +193,23 @@ def run_consortium_round(
         delta=delta,
         n_parties=len(session.party_ids),
         n_survivors=len(survivors),
+        parents=parent_list,
     )
     entry = ledger.append(
         CONSORTIUM_EVENT,
-        {
-            "round_id": round_id,
-            "aggregate_sha256": commitment["aggregate_sha256"],
-            "max_epsilon": max_epsilon,
-            "delta": delta,
-            "n_parties": len(session.party_ids),
-            "n_survivors": len(survivors),
-            "n_dropped": len(dropped_list),
-            "per_silo_epsilon": {str(s): dp_results[s].epsilon for s in survivors},
-        },
+        with_parents(
+            {
+                "round_id": round_id,
+                "aggregate_sha256": commitment["aggregate_sha256"],
+                "max_epsilon": commitment["max_epsilon"],
+                "delta": commitment["delta"],
+                "n_parties": len(session.party_ids),
+                "n_survivors": len(survivors),
+                "n_dropped": len(dropped_list),
+                "per_silo_epsilon": _per_silo_epsilon(dp_results, survivors),
+            },
+            parent_list,
+        ),
     )
 
     out_path: Path | None = None
@@ -343,6 +368,7 @@ def run_secure_consortium_round(
     signer: str = "presidio-hardened-ai",
     algorithm: str = "ed25519",
     evidence_path: str | Path | None = None,
+    parents: Iterable[str] | None = None,
     clip_bound: float | None = None,
     l2_bound: float | None = None,
     robustness: RobustnessPolicy | None = None,
@@ -368,6 +394,7 @@ def run_secure_consortium_round(
         raise ConsortiumError("run_secure_consortium_round requires a verifiable-mode session")
     if not round_id:
         raise ConsortiumError("round_id must be non-empty")
+    parent_list = normalize_parents(parents)  # fail closed before any side effect
     backend = backend if backend is not None else get_backend()
     survivors = [p for p in session.party_ids if p in updates]
     if not survivors:
@@ -473,7 +500,7 @@ def run_secure_consortium_round(
                     "round_id": round_id,
                     "mode": "secure",
                     "reason": verdict.reason,
-                    "score": verdict.metrics.score,
+                    "score": encode_field("score", verdict.metrics.score),
                     "canary_pass": verdict.metrics.canary_pass,
                     "n_survivors": len(survivors),
                 },
@@ -499,7 +526,7 @@ def run_secure_consortium_round(
     max_epsilon = gating.epsilon
     approvers: list[str] = []
     if requires_authorization(policy, max_epsilon):
-        _req_hash, approved = authorize(
+        _req_hash, approved, _req_canon = authorize_request(
             gating,
             job_id=f"consortium/{round_id}",
             policy=policy,
@@ -509,13 +536,14 @@ def run_secure_consortium_round(
         approvers = list(approved)
         ledger.append(
             AUTHORIZED_EVENT,
-            {
-                "job_id": f"consortium/{round_id}",
-                "epsilon": max_epsilon,
-                "threshold": policy.threshold,
-                "approvers": approvers,
-                "request_hash": _req_hash,
-            },
+            authorization_payload(
+                job_id=f"consortium/{round_id}",
+                epsilon=max_epsilon,
+                threshold=policy.threshold,
+                approvers=approvers,
+                request_hash=_req_hash,
+                request_canon=_req_canon,
+            ),
         )
 
     per_silo_charge: dict[str, ChargeResult] = {}
@@ -534,6 +562,7 @@ def run_secure_consortium_round(
         delta=delta,
         n_parties=len(session.party_ids),
         n_survivors=len(survivors),
+        parents=parent_list,
     )
     commit_digest = sha256_hex(
         {
@@ -546,21 +575,24 @@ def run_secure_consortium_round(
     )
     entry = ledger.append(
         CONSORTIUM_EVENT,
-        {
-            "round_id": round_id,
-            "aggregate_sha256": commitment["aggregate_sha256"],
-            "input_commitments_sha256": commit_digest,
-            "max_epsilon": max_epsilon,
-            "delta": delta,
-            "n_parties": len(session.party_ids),
-            "n_survivors": len(survivors),
-            "survivor_signers": signers,
-            "sensitivity_proven": sensitivity_proven,
-            "proven_norm": proven_norm,
-            "clip_bound": clip_bound,
-            "l2_bound": l2_bound,
-            "per_silo_epsilon": {str(s): dp_results[s].epsilon for s in survivors},
-        },
+        with_parents(
+            {
+                "round_id": round_id,
+                "aggregate_sha256": commitment["aggregate_sha256"],
+                "input_commitments_sha256": commit_digest,
+                "max_epsilon": commitment["max_epsilon"],
+                "delta": commitment["delta"],
+                "n_parties": len(session.party_ids),
+                "n_survivors": len(survivors),
+                "survivor_signers": signers,
+                "sensitivity_proven": sensitivity_proven,
+                "proven_norm": proven_norm,
+                "clip_bound": _optional_decimal("clip_bound", clip_bound),
+                "l2_bound": _optional_decimal("l2_bound", l2_bound),
+                "per_silo_epsilon": _per_silo_epsilon(dp_results, survivors),
+            },
+            parent_list,
+        ),
     )
 
     out_path: Path | None = None
@@ -696,6 +728,7 @@ def run_god_consortium_round(
     signer: str = "presidio-hardened-ai",
     algorithm: str = "ed25519",
     evidence_path: str | Path | None = None,
+    parents: Iterable[str] | None = None,
     holder_overrides: Mapping[Hashable, Mapping[int, int]] | None = None,
     clip_bound: float | None = None,
     l2_bound: float | None = None,
@@ -714,6 +747,7 @@ def run_god_consortium_round(
     """
     if not round_id:
         raise ConsortiumError("round_id must be non-empty")
+    parent_list = normalize_parents(parents)  # fail closed before any side effect
     parties = list(updates)
     if len(parties) < threshold:
         raise ConsortiumError(f"need >= {threshold} parties, got {len(parties)}")
@@ -805,7 +839,7 @@ def run_god_consortium_round(
                     "round_id": round_id,
                     "mode": "god",
                     "reason": verdict.reason,
-                    "score": verdict.metrics.score,
+                    "score": encode_field("score", verdict.metrics.score),
                     "canary_pass": verdict.metrics.canary_pass,
                     "n_parties": n,
                     "n_included": len(god.included),
@@ -832,7 +866,7 @@ def run_god_consortium_round(
     max_epsilon = gating.epsilon
     approvers: list[str] = []
     if requires_authorization(policy, max_epsilon):
-        _req_hash, approved = authorize(
+        _req_hash, approved, _req_canon = authorize_request(
             gating,
             job_id=f"consortium/{round_id}",
             policy=policy,
@@ -842,13 +876,14 @@ def run_god_consortium_round(
         approvers = list(approved)
         ledger.append(
             AUTHORIZED_EVENT,
-            {
-                "job_id": f"consortium/{round_id}",
-                "epsilon": max_epsilon,
-                "threshold": policy.threshold,
-                "approvers": approvers,
-                "request_hash": _req_hash,
-            },
+            authorization_payload(
+                job_id=f"consortium/{round_id}",
+                epsilon=max_epsilon,
+                threshold=policy.threshold,
+                approvers=approvers,
+                request_hash=_req_hash,
+                request_canon=_req_canon,
+            ),
         )
 
     per_silo_charge: dict[str, ChargeResult] = {}
@@ -867,24 +902,28 @@ def run_god_consortium_round(
         delta=delta,
         n_parties=n,
         n_survivors=len(god.included),
+        parents=parent_list,
     )
     entry = ledger.append(
         CONSORTIUM_EVENT,
-        {
-            "round_id": round_id,
-            "mode": "god",
-            "aggregate_sha256": commitment["aggregate_sha256"],
-            "max_epsilon": max_epsilon,
-            "delta": delta,
-            "n_parties": n,
-            "n_included": len(god.included),
-            "n_excluded": len(god.excluded),
-            "excluded": [str(p) for p in god.excluded],
-            "honest_majority_threshold": threshold,
-            "proven_norm": proven_norm,
-            "norm_excluded": [str(p) for p in norm_excluded],
-            "per_silo_epsilon": {str(p): dp_results[p].epsilon for p in god.included},
-        },
+        with_parents(
+            {
+                "round_id": round_id,
+                "mode": "god",
+                "aggregate_sha256": commitment["aggregate_sha256"],
+                "max_epsilon": commitment["max_epsilon"],
+                "delta": commitment["delta"],
+                "n_parties": n,
+                "n_included": len(god.included),
+                "n_excluded": len(god.excluded),
+                "excluded": [str(p) for p in god.excluded],
+                "honest_majority_threshold": threshold,
+                "proven_norm": proven_norm,
+                "norm_excluded": [str(p) for p in norm_excluded],
+                "per_silo_epsilon": _per_silo_epsilon(dp_results, god.included),
+            },
+            parent_list,
+        ),
     )
 
     out_path: Path | None = None

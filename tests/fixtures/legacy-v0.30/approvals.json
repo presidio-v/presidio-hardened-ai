@@ -1,0 +1,31 @@
+{
+  "generated_by": "presidio-hardened-ai 0.30.0 (pre-canon legacy encoder)",
+  "ledger_key": "legacy-fixture-ledger-key",
+  "approver_keys": {
+    "alice": "alice-fixture-key",
+    "bob": "bob-fixture-key",
+    "carol": "carol-fixture-key"
+  },
+  "pending_job": {
+    "job_id": "legacy-pending",
+    "noise_multiplier": 1.2,
+    "sample_rate": 0.02,
+    "steps": 300,
+    "delta": 1e-05
+  },
+  "pending_request": {
+    "job_id": "legacy-pending",
+    "epsilon": 1.738720927955561,
+    "delta": 1e-05,
+    "optimal_order": 9,
+    "noise_multiplier": 1.2,
+    "sample_rate": 0.02,
+    "steps": 300,
+    "accountant": "rdp-subsampled-gaussian"
+  },
+  "pending_request_hash": "bb04d110ac81fc07374e2404e37b09b28db0492b6c9850245036e3c7ce8530ec",
+  "pending_approvals": {
+    "alice": "97d9e860e8c78e8cc60c28a16e544c78f081ae238fb037e538147847bbc2c641",
+    "carol": "62a37fe2e253e0d615fd2668e3e9832ec83a2cad207c5069d5551bad68d8be7f"
+  }
+}

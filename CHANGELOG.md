@@ -10,6 +10,32 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
+Version 0.31.0. Depends on the family numeric-encoding rule (presidio-evidence ADR-0005,
+in draft); see `MIGRATION.md`.
+
+### Added
+- Provenance `parents` (presidio-evidence ADR-0002) in DP, consortium and ingest evidence
+  content and the matching ledger entries: lowercase hex, order kept, duplicates dropped,
+  omitted when empty, malformed values rejected before any write. Repeatable `--parent HEX`
+  on `pai ingest`, `dp-train`, `dp-charge` and `consortium-round` (#67).
+- `docs/schemas/signed-payloads.md`: per-field precisions for the `dp-result@1`,
+  `consortium-round@1` and `ingest-record@1` payloads; `presidio_ai.numeric` encodes them.
+- Conformance tests against presidio-evidence's `canonical-json` and `signing` vectors
+  (copied to `tests/vectors/`), and a 0.30.0-produced legacy ledger + approvals fixture.
+
+### Changed
+- All new hashes, ledger MACs and authorization requests use the strict canonical profile
+  (`hashing.canonical_json`: floats rejected, `allow_nan=False`). Privacy parameters in
+  signed payloads are half-even decimal strings, so new DP and consortium D4 content
+  hashes differ from 0.30.0 for the same run (#68).
+- New ledger entries and authorization requests carry `canon: 1`; the `mpa-authorized`
+  entry records `request_canon`. Untagged entries and pre-0.31 approvals verify through the
+  frozen `_legacy_canonical_v0`; nothing stored is rewritten. Removal tracked in #74.
+- Ingest: the source commitment is sha256 over the input bytes as read; the scrubbed
+  `content_hash` covers the `records-jsonl@1` bytes that `--out` now writes exactly
+  (compact, sorted keys). Hash scopes are recorded. Ingest D1/D4 refs commit to the
+  ingest record (`ingest-record@1`) rather than to the bare data hash.
+
 ### Fixed
 - `__version__` reported 0.10.0 since v0.11.0, so `pai version` and the `source_version`
   field of every evidence record named the wrong release. It now matches the package

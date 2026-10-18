@@ -27,3 +27,5 @@ audit/
 .coverage.*
 htmlcov/
 coverage.xml
+# Committed test fixtures (synthetic ledgers produced by released code for legacy-verify tests).
+!tests/fixtures/**/*.jsonl

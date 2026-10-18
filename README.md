@@ -205,6 +205,32 @@ the default** (v0.8.0; HMAC remains available via `--algorithm hmac-sha256`), so
 export requires a signing key. Signatures are deterministic
 (RFC 8032) and verify with `verify_ed25519(content_hash, signer, signature, public_key)`.
 
+### Provenance parents and canonical encoding
+
+`pai ingest`, `dp-train`, `dp-charge` and `consortium-round` take a repeatable
+`--parent HEX`: the content hash of upstream evidence the run was produced under, such
+as the ikigov gate certificate that authorised it or the ingest record of its dataset.
+
+```bash
+pai dp-train --input data.jsonl --ledger audit/ledger.jsonl --total-epsilon 10 \
+    --job-id fraud-ft --noise-multiplier 1.1 --sample-rate 0.01 --steps 2000 \
+    --evidence-out audit/dp-evidence.json --signing-key "$PRIVATE_HEX" \
+    --parent "$GATE_CERT_HASH" --parent "$INGEST_RECORD_HASH"
+```
+
+Parents go into the hashed evidence content and the ledger entry as a top-level
+`parents` array (presidio-evidence ADR-0002): lowercase hex of 8 to 128 characters,
+order kept, duplicates dropped, omitted when empty. A malformed value exits 1 before
+anything is written. The producer does not resolve parents; walking the DAG is the
+consumer's job.
+
+All hashed and signed payloads use the family's strict canonical JSON (floats
+rejected), and privacy parameters are decimal strings at declared precisions
+([docs/schemas/signed-payloads.md](docs/schemas/signed-payloads.md)). `pai ingest`
+hashes the input file's bytes as read, and `--out` writes exactly the bytes behind
+`content_hash`, so `sha256sum` reproduces both. Ledgers written before 0.31 keep
+verifying; see [MIGRATION.md](MIGRATION.md).
+
 ## Library
 
 ```python
