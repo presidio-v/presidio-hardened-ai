@@ -47,9 +47,10 @@ from presidio_ai.fl import (
     federated_train,
     run_consortium_round,
 )
-from presidio_ai.ingest import ingest_records
+from presidio_ai.ingest import ingest_records, records_jsonl_bytes
 from presidio_ai.ledger import Ledger, LedgerError, verify_chain
 from presidio_ai.pii import PIIBlockedError, PIIScrubber
+from presidio_ai.provenance import ParentError, normalize_parents
 from presidio_ai.sanitize import (
     ValidationError,
     validate_identifier,
@@ -62,6 +63,7 @@ from presidio_ai.security import increment_session_count, log_security_event, se
 app = typer.Typer(add_completion=False, help="Training-time privacy evidence layer.")
 
 _KEY_ENV = "PRESIDIO_AI_LEDGER_KEY"
+_PARENT_HELP = "Upstream evidence content hash, lowercase hex (ADR-0002 parents; repeatable)."
 
 
 def _err(message: str) -> None:
@@ -90,18 +92,30 @@ def _resolve_signing(algorithm: str, ledger_key: str, signing_key: str | None) -
     raise typer.Exit(1)
 
 
-def _read_jsonl(path: Path) -> list[object]:
+def _resolve_parents(parents: list[str] | None) -> list[str]:
+    """Validate --parent values (ADR-0002 P2/P3); exit 1 on a malformed entry."""
+    try:
+        return normalize_parents(parents)
+    except ParentError as exc:
+        _err(f"error: --parent: {exc}")
+        raise typer.Exit(1) from exc
+
+
+def _parse_jsonl(text: str) -> list[object]:
     records: list[object] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for n, line in enumerate(fh, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise ValidationError(f"invalid JSON on line {n}: {exc.msg}") from exc
+    for n, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ValidationError(f"invalid JSON on line {n}: {exc.msg}") from exc
     return records
+
+
+def _read_jsonl(path: Path) -> list[object]:
+    return _parse_jsonl(path.read_text(encoding="utf-8"))
 
 
 @app.command()
@@ -126,9 +140,11 @@ def ingest(
     signing_key: str | None = typer.Option(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
     ),
+    parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Emit machine-readable JSON only."),
 ) -> None:
     """Scrub a source, record lineage, and optionally export signed evidence."""
+    parents = _resolve_parents(parent)
     try:
         source = validate_identifier(source, what="source")
         use_case = validate_identifier(use_case, what="use-case")
@@ -145,15 +161,26 @@ def ingest(
             _err(f"error: input not found: {input}")
             raise typer.Exit(1)
 
-        records = _read_jsonl(input)
+        raw_bytes = input.read_bytes()
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValidationError(f"input is not valid UTF-8: {exc.reason}") from exc
+        records = _parse_jsonl(text)
         ledger = Ledger(ledger_path, key=resolved_key)
         scrubber = PIIScrubber(action=pii_action, mode=pii_mode)
-        result = ingest_records(records, source_id=source, ledger=ledger, scrubber=scrubber)
+        result = ingest_records(
+            records,
+            source_id=source,
+            ledger=ledger,
+            scrubber=scrubber,
+            raw_bytes=raw_bytes,
+            parents=parents,
+        )
 
         if out is not None:
-            with out.open("w", encoding="utf-8") as fh:
-                for record in result.records:
-                    fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            # Exactly the bytes content_hash covers (records-jsonl@1): sha256sum reproduces it.
+            out.write_bytes(records_jsonl_bytes(result.records))
             _err(f"Scrubbed records written to: {out}")
 
         evidence_payload = None
@@ -183,6 +210,10 @@ def ingest(
             "n_fields_scrubbed": result.n_fields_scrubbed,
             "redaction_counts": result.redaction_counts,
             "content_hash": result.content_hash,
+            "content_hash_scope": result.content_hash_scope,
+            "source_commitment": result.source_commitment,
+            "source_commitment_scope": result.source_commitment_scope,
+            "parents": list(result.parents),
             "ledger_seq": result.ledger_seq,
             "evidence": evidence_payload,
         }
@@ -193,7 +224,7 @@ def ingest(
             typer.echo(f"  redactions: {result.redactions_total} {result.redaction_counts}")
             typer.echo(f"  content_hash: {result.content_hash}")
             typer.echo(f"  ledger seq:   {result.ledger_seq}")
-    except (ValidationError, PIIBlockedError, LedgerError) as exc:
+    except (ValidationError, PIIBlockedError, LedgerError, ValueError) as exc:
         _err(f"error: {exc}")
         raise typer.Exit(1) from exc
 
@@ -250,6 +281,7 @@ def dp_train(
     signing_key: str | None = typer.Option(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
     ),
+    parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Train a DP-SGD logistic model, charge the budget, optionally export evidence.
@@ -259,6 +291,7 @@ def dp_train(
     """
     resolved_key = _resolve_key(key)
     job_id = validate_identifier(job_id, what="job-id")
+    parents = _resolve_parents(parent)
     try:
         validate_path(str(input))
         if not input.exists():
@@ -290,7 +323,7 @@ def dp_train(
         model = make_trainer("reference").train(features, labels, config, seed=seed)
         ledger = Ledger(ledger_path, key=resolved_key)
         budget = EpsilonBudget(total_epsilon, delta, ledger)
-        charge = budget.charge(model.result, job_id=job_id)
+        charge = budget.charge(model.result, job_id=job_id, parents=parents)
     except BudgetExceeded as exc:
         _err(f"BUDGET EXCEEDED: {exc}")
         raise typer.Exit(2) from exc
@@ -307,6 +340,7 @@ def dp_train(
             signer=signer,
             charge_seq=charge.ledger_seq,
             algorithm=alg,
+            parents=parents,
         )
         export_evidence(refs, evidence_out, use_case=job_id)
         evidence_payload = [r.to_dict() for r in refs]
@@ -616,11 +650,13 @@ def dp_charge(
     approval: list[str] | None = typer.Option(
         None, "--approval", help="Approval as id:hexsig (repeatable)."
     ),
+    parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Account a DP-SGD job, charge it to the ledger budget, optionally export evidence."""
     resolved_key = _resolve_key(key)
     job_id = validate_identifier(job_id, what="job-id")
+    parents = _resolve_parents(parent)
     try:
         policy = None
         keys: dict[str, str] = {}
@@ -646,6 +682,7 @@ def dp_charge(
             policy=policy,
             approvals=approvals,
             approver_keys=keys,
+            parents=parents,
         )
     except MPADenied as exc:
         _err(f"AUTHORIZATION DENIED: {exc}")
@@ -666,6 +703,7 @@ def dp_charge(
             signer=signer,
             charge_seq=charge.ledger_seq,
             algorithm=alg,
+            parents=parents,
         )
         export_evidence(refs, evidence_out, use_case=job_id)
         evidence_payload = [r.to_dict() for r in refs]
@@ -762,10 +800,12 @@ def consortium_round(
     signing_key: str | None = typer.Option(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
     ),
+    parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Run one governed secure-aggregation round: MPA -> aggregate -> per-silo charge -> D4."""
     resolved_key = _resolve_key(key)
+    parents = _resolve_parents(parent)
     try:
         spec = json.loads(round_file.read_text(encoding="utf-8"))
         round_id = validate_identifier(str(spec["round_id"]), what="round-id")
@@ -829,6 +869,7 @@ def consortium_round(
             signer=signer,
             algorithm=alg,
             evidence_path=evidence_out,
+            parents=parents,
         )
     except MPADenied as exc:
         _err(f"AUTHORIZATION DENIED: {exc}")

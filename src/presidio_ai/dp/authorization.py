@@ -10,6 +10,12 @@ privacy-risk runs require human/system sign-off, recorded immutably in the ledge
 Approval is over a canonical *authorization request* derived from the job's privacy
 parameters, so an approval cannot be replayed onto a different job or different
 (epsilon, delta) without invalidating the signature.
+
+Requests built since 0.31 carry ``canon: 1`` and hash under the strict canonical
+profile with decimal-string parameters. An approval countersigned before 0.31 is
+over the *untagged* legacy request (float parameters, frozen legacy encoder); it
+still verifies for the same job and parameters, but a charge is authorized by one
+request form or the other, never a mix of approvals across both.
 """
 
 from __future__ import annotations
@@ -18,7 +24,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from presidio_ai.dp.accountant import DPResult
-from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
+from presidio_ai.hashing import (
+    CANON_LEGACY,
+    CANON_STRICT,
+    constant_time_equals,
+    hmac_hex,
+    legacy_sha256_hex_v0,
+    sha256_hex,
+)
 
 
 class MPADenied(RuntimeError):
@@ -44,11 +57,26 @@ class MPAPolicy:
 
 def build_request(result: DPResult, *, job_id: str) -> dict[str, object]:
     """Canonical authorization request bound to the job's privacy parameters."""
+    return {"canon": CANON_STRICT, "job_id": job_id, **result.signed_dict()}
+
+
+def _legacy_request_v0(result: DPResult, *, job_id: str) -> dict[str, object]:
+    """Verify-only: the untagged pre-0.31 request that older approvals countersign."""
     return {"job_id": job_id, **result.as_dict()}
 
 
 def request_hash(request: Mapping[str, object]) -> str:
-    return sha256_hex(dict(request))
+    """Hash a request under the canonicaliser its ``canon`` tag names.
+
+    Tagged (``canon: 1``) requests use the strict profile; an untagged request is a
+    pre-0.31 one and is hashed with the frozen legacy encoder, for verification only.
+    """
+    request = dict(request)
+    if "canon" not in request:
+        return legacy_sha256_hex_v0(request)
+    if request["canon"] != CANON_STRICT or isinstance(request["canon"], bool):
+        raise ValueError(f"unsupported request canon tag: {request['canon']!r}")
+    return sha256_hex(request)
 
 
 def sign_approval(req_hash: str, *, approver_id: str, approver_key: bytes | str) -> str:
@@ -102,14 +130,40 @@ def authorize(
 
     Raises :class:`MPADenied` if fewer than ``threshold`` valid distinct approvals.
     """
-    request = build_request(result, job_id=job_id)
-    req_hash = request_hash(request)
+    req_hash, approved, _canon = authorize_request(
+        result, job_id=job_id, policy=policy, approvals=approvals, approver_keys=approver_keys
+    )
+    return req_hash, approved
+
+
+def authorize_request(
+    result: DPResult,
+    *,
+    job_id: str,
+    policy: MPAPolicy,
+    approvals: Mapping[str, str],
+    approver_keys: Mapping[str, str],
+) -> tuple[str, Sequence[str], int]:
+    """Like :func:`authorize`, also returning the ``canon`` of the request that passed.
+
+    The current (``canon: 1``) request is tried first; approvals collected before 0.31
+    over the untagged legacy request are accepted only if they alone meet the threshold.
+    """
+    req_hash = request_hash(build_request(result, job_id=job_id))
     approved = valid_approvers(
         req_hash, approvals=approvals, approver_keys=approver_keys, policy=policy
     )
+    canon = CANON_STRICT
+    if len(approved) < policy.threshold:
+        legacy_hash = request_hash(_legacy_request_v0(result, job_id=job_id))
+        legacy_approved = valid_approvers(
+            legacy_hash, approvals=approvals, approver_keys=approver_keys, policy=policy
+        )
+        if len(legacy_approved) >= policy.threshold:
+            req_hash, approved, canon = legacy_hash, legacy_approved, CANON_LEGACY
     if len(approved) < policy.threshold:
         raise MPADenied(
             f"job '{job_id}' needs {policy.threshold} approval(s) for epsilon="
             f"{result.epsilon:.4f}; got {len(approved)} valid ({', '.join(approved) or 'none'})"
         )
-    return req_hash, approved
+    return req_hash, approved, canon

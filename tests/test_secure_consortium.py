@@ -226,7 +226,7 @@ def test_secure_round_with_bounded_norm_gate(tmp_path):
     from presidio_ai.fl.consortium import CONSORTIUM_EVENT
 
     rnd = [e for e in verify_chain(ledger.path, key=KEY) if e.event == CONSORTIUM_EVENT][0].payload
-    assert rnd["sensitivity_proven"] is True and rnd["clip_bound"] == 2.0
+    assert rnd["sensitivity_proven"] is True and rnd["clip_bound"] == "2"
 
 
 def test_secure_round_rejects_poisoning_update(tmp_path):
@@ -282,7 +282,7 @@ def test_secure_round_with_l2_gate(tmp_path):
 
     rnd = [e for e in verify_chain(ledger.path, key=KEY) if e.event == CONSORTIUM_EVENT][0].payload
     assert (
-        rnd["sensitivity_proven"] is True and rnd["proven_norm"] == "l2" and rnd["l2_bound"] == 2.0
+        rnd["sensitivity_proven"] is True and rnd["proven_norm"] == "l2" and rnd["l2_bound"] == "2"
     )
 
 

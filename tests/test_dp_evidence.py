@@ -34,7 +34,7 @@ def test_build_dp_evidence_d4(tmp_path):
     assert [r.item_id for r in refs] == list(SUPPORTED_DP_ITEMS) == ["D4"]
     ref = refs[0]
     assert verify_evidence(ref, SIGNING)
-    assert ref.content_hash == sha256_hex(charge.result.as_dict())
+    assert ref.content_hash == sha256_hex(charge.result.signed_dict())
     assert ref.ledger_ref == f"pai-ledger:seq/{charge.ledger_seq}"
     assert ref.source == "presidio-hardened-ai"
 

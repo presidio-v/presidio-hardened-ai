@@ -82,7 +82,9 @@ def test_dp_charge_and_budget(tmp_path, monkeypatch):
     )
     assert status.exit_code == 0
     st = json.loads(status.stdout)
-    assert st["spent"] == summary["epsilon"]
+    # The ledger records epsilon at 12 fractional digits (half-even), so the re-derived
+    # spend matches the accountant float to within 5e-13.
+    assert abs(st["spent"] - summary["epsilon"]) <= 5e-13
     assert st["remaining"] < 10
 
 
