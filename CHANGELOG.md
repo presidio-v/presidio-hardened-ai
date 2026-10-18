@@ -8,6 +8,13 @@ The **P4 consortium** arc (v0.11.0–v0.30.0) hardens multi-party secure aggrega
 accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** throughout, so the
 `presidio-hardened-ikigov-assess` verifier interoperates with every version below.
 
+## [Unreleased]
+
+### Fixed
+- `__version__` reported 0.10.0 since v0.11.0, so `pai version` and the `source_version`
+  field of every evidence record named the wrong release. It now matches the package
+  (0.30.0), and a test pins it to `pyproject.toml` (#70).
+
 ## [0.30.0] — Byzantine-ML robustness gate (ADR-0007)
 
 ### Added
