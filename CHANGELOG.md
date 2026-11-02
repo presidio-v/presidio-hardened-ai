@@ -10,6 +10,14 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
+### Added
+- `--gate-certificate PATH` (repeatable) with `--gate-trust PATH` on `dp-train`,
+  `dp-charge` and `consortium-round` (#77). Each ikigov-assess `gate-certificate@1` is
+  verified with ikigov's own `verify_certificate` (issuer signature, expiry, embedded
+  evidence-refs, recomputed decision, which must be `OPEN`) before its identity
+  (presidio-evidence ADR-0006) is appended to the run's `parents`. Any refusal exits 1
+  before the ledger is touched. New optional `[gate]` extra.
+
 ### Changed
 - **Requires Python 3.11 or newer.** Python 3.10 reached end of life in October 2026.
   CI runs the full gate on 3.11 and the test suite on 3.12 and 3.13.

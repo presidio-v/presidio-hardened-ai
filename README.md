@@ -218,6 +218,20 @@ pai dp-train --input data.jsonl --ledger audit/ledger.jsonl --total-epsilon 10 \
     --parent "$GATE_CERT_HASH" --parent "$INGEST_RECORD_HASH"
 ```
 
+A gate certificate can also be verified rather than taken on trust.
+`--gate-certificate PATH` (repeatable) with `--gate-trust PATH` on `dp-train`, `dp-charge`
+and `consortium-round` checks an ikigov-assess `gate-certificate@1` with ikigov's own
+verifier (signature, expiry, embedded evidence, recomputed decision, which must be
+`OPEN`) and appends its identity to the parents. Any refusal exits 1 before anything is
+charged. It needs the `[gate]` extra:
+
+```bash
+pip install 'presidio-hardened-ai[gate]'
+pai dp-charge --ledger audit/ledger.jsonl --total-epsilon 10 --job-id fraud-ft \
+    --noise-multiplier 1.1 --sample-rate 0.01 --steps 2000 \
+    --gate-certificate audit/g0-certificate.json --gate-trust audit/gate-trust.json
+```
+
 Parents go into the hashed evidence content and the ledger entry as a top-level
 `parents` array (presidio-evidence ADR-0002): lowercase hex of 8 to 128 characters,
 order kept, duplicates dropped, omitted when empty. A malformed value exits 1 before

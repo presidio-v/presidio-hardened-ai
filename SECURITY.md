@@ -11,11 +11,12 @@
 
 | Python | Supported |
 |--------|-----------|
-| 3.10 – 3.12 | Yes |
+| 3.11 – 3.13 | Yes |
+| ≤ 3.10 | No (end of life) |
 
-This package starts at `requires-python >=3.10`, aligned with the family baseline
-from `presidio-hardened-ikigov-assess` v0.9.0 (Python 3.9 is upstream end-of-life and
-leaves the dev/audit dependency tree pinned to a vulnerable `urllib3`).
+Since 0.32.0 the package requires Python 3.11 or newer (`requires-python >=3.11`), the
+same floor as presidio-evidence and ikigov-assess. CI runs the full gate on 3.11 and the
+test suite on 3.12 and 3.13.
 
 ## Reporting a Vulnerability
 
@@ -79,14 +80,31 @@ changing the `EvidenceRef` shape, which matches the
   against presidio-evidence's golden vectors. Privacy parameters are decimal strings at
   declared precisions; a non-zero delta or sample rate that would round to zero is
   refused rather than recorded as a stronger guarantee.
-- **No silent downgrade.** Ledger entries carry a MAC-covered `canon: 1` tag. Untagged
-  (pre-0.31) entries verify through a frozen legacy encoder that never produces new
-  bytes; an untagged entry after a tagged one, or an unknown tag, fails closed. Pre-0.31
-  approvals count only as a complete set over the legacy request, never mixed with new
-  ones. Removal of the legacy path is tracked in #74.
+- **No silent downgrade.** Ledger entries carry a MAC-covered `canon: 1` tag. Since 0.32
+  (#74) there is one canonicaliser in the trust path: an untagged (pre-0.31) entry, any
+  other tag, an untagged authorization request and approvals over one all fail closed.
+- **One implementation of the evidence contract.** Since 0.32 canonical JSON, the
+  evidence signing message, HMAC/Ed25519 signing and verification and the envelope come
+  from `presidio-evidence`; this repository's pinned copies of its golden vectors are
+  checked against both the code and the installed library.
 - **Provenance parents** are validated (lowercase hex, 8 to 128 chars) before any ledger
   write and sit inside the hashed content, so rewiring lineage breaks the hash and the
   signature. The producer does not resolve them.
+
+### Verified gate certificates (v0.32.0)
+
+- **The gate edge is verified, not asserted.** `--gate-certificate` on `dp-train`,
+  `dp-charge` and `consortium-round` accepts an ikigov-assess `gate-certificate@1` only
+  after ikigov's own `verify_certificate` passes against the `--gate-trust` store
+  (issuer signature, predicate, expiry, every embedded evidence-ref, recomputed
+  decision) and the decision is `OPEN`. Only then does its identity become a parent.
+- **Fail closed before side effects.** Any refusal, a certificate without a trust store,
+  a trust store without a certificate, a missing `[gate]` extra, or a file that is not a
+  regular UTF-8 JSON file of at most 1 MiB (non-finite numbers rejected) exits 1 before
+  the ledger is opened for writing. Security events record counts only, never paths or
+  certificate content.
+- **Trust is the operator's.** The trust store decides which issuers and evidence
+  signers count; a certificate never vouches for itself.
 
 ### High-ε authorization (v0.3.0)
 
