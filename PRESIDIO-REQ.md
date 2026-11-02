@@ -872,8 +872,9 @@ storyline's gate → training-run edge was missing exactly where training happen
   `consortium-round`; exit 1 on a malformed value.
 - **R-P3** Parent-less content hashes are identical to the same record without the
   feature; two are pinned in `tests/test_provenance.py`.
-- **Deferred:** `--gate-certificate` (verify the ikigov gate certificate before training)
-  waits for family ADR-0006; a `training-run@1` payload is not emitted yet.
+- **Delivered in 0.32.0 (#77):** `--gate-certificate` with `--gate-trust` verifies the
+  ikigov gate certificate before training (see v0.32.0 below). A `training-run@1`
+  payload is still not emitted.
 
 **Consequence:** content hashes of new DP/consortium/ingest refs differ from 0.30.0 for
 the same run; existing refs still verify (their signatures are over float-free
@@ -895,3 +896,40 @@ the same run; existing refs still verify (their signatures are over float-free
 
 Developed under the family-wide Presidio SDLC:
 <https://github.com/presidio-v/presidio-hardened-docs/blob/main/sdlc/sdlc-report.md>.
+
+---
+
+## v0.32.0 — Verified gate certificates, presidio-evidence dependency, Python 3.11+
+
+**#77 — the gate edge was unverified.** `--parent` takes any well-formed hex value, so a
+DP run could name a gate certificate that was expired, BLOCKED or never issued.
+presidio-evidence 0.4.0 shipped the `gate-certificate@1` identity (family ADR-0006), and
+arch-translucency verifies certificates the same way, so the edge can now be checked.
+
+- **R-G1** `--gate-certificate PATH` (repeatable) with `--gate-trust PATH` on `dp-train`,
+  `dp-charge` and `consortium-round`. Each certificate is verified with ikigov-assess's
+  `verify_certificate` (schema, issuer signature against the trust store, predicate,
+  expiry, embedded evidence-refs, recomputed decision); the decision must be `OPEN`.
+- **R-G2** The certificate's identity (`presidio_evidence.gate_certificate_identity`:
+  sha256 over the canonical document minus `signature`) is appended to the run's
+  `parents` after the bare `--parent` values, once. `framework_content_hash` is never a
+  parent.
+- **R-G3** Fail closed before any side effect: any refusal, `--gate-certificate` without
+  `--gate-trust` or the reverse, an unreadable, non-UTF-8, non-JSON or over-1-MiB file, or
+  the `[gate]` extra missing exits 1 with no ledger entry and no evidence written. Refusals
+  and acceptances are logged as security events (counts only).
+- **R-G4** The verifier is the optional `[gate]` extra
+  (`presidio-hardened-ikigov-assess[crypto]>=0.28.0,<1`), imported only when the option is
+  used. The identity is pinned to presidio-evidence's
+  `vectors/gate-certificate/valid-certificate.json`.
+- **Not in scope:** emitting a `training-run@1` payload.
+
+**Dependency and platform.**
+
+- **R-E1** presidio-evidence (`>=0.5.1,<0.6`) supplies canonical JSON, the evidence signing
+  message, HMAC/Ed25519 signing and verification, key generation and the envelope
+  (presidio-evidence MIGRATION step 2); no signed byte changes.
+- **R-E2** The pre-0.31 encoder is removed (#74); untagged ledger entries and approvals
+  over untagged requests fail closed.
+- **R-E3** Python 3.11+.
+

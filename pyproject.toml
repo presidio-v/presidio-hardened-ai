@@ -44,6 +44,11 @@ mpc = ["cryptography>=42", "uvicorn>=0.30", "starlette>=0.37"]
 # It is a drop-in accelerator: absent it, get_backend() falls back to the pure-Python MODP
 # proofs, so this extra stays installable (no-op) and `pip install ...[zk]` always works.
 zk = []
+# [gate] verifies ikigov-assess gate certificates for --gate-certificate (issue #77):
+# its verify_certificate checks schema, issuer signature, expiry, embedded refs and the
+# recomputed decision. Floor = the release the family gate-certificate vector was
+# cross-checked against; ceiling on the major.
+gate = ["presidio-hardened-ikigov-assess[crypto]>=0.28.0,<1"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -52,6 +57,9 @@ dev = [
     "cryptography>=42",
     "uvicorn>=0.30",
     "starlette>=0.37",
+    # Keep in step with [gate]: the gate-certificate tests issue and verify real
+    # certificates with ikigov-assess.
+    "presidio-hardened-ikigov-assess[crypto]>=0.28.0,<1",
 ]
 
 [project.scripts]

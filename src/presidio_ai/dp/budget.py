@@ -123,8 +123,9 @@ class EpsilonBudget:
         charge requires n-of-m approval (``approvals`` countersignatures verified
         against ``approver_keys``) and is rejected with :class:`MPADenied` otherwise.
         A successful authorization is recorded to the ledger before the charge.
-        ``parents`` (ADR-0002 content hashes, e.g. the gate certificate that authorised
-        the run) are recorded in the charge entry, omitted when empty.
+        ``parents`` (ADR-0002 content hashes, e.g. the identity of the gate certificate
+        that authorised the run, verified by :mod:`presidio_ai.gate_certificate`) are
+        recorded in the charge entry, omitted when empty.
         """
         if not job_id or not isinstance(job_id, str):
             raise ValueError("job_id must be a non-empty string")

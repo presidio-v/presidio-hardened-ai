@@ -101,6 +101,53 @@ def _resolve_parents(parents: list[str] | None) -> list[str]:
         raise typer.Exit(1) from exc
 
 
+_GATE_CERTIFICATE_HELP = (
+    "ikigov-assess gate certificate (gate-certificate@1) whose decision admitted this "
+    "training run (repeatable). Verified against --gate-trust before anything is "
+    "charged or emitted: schema, issuer signature, expiry, embedded evidence-refs and "
+    "the recomputed decision, which must be OPEN. Its identity (sha256 of the canonical "
+    "document minus `signature`) is appended to the parents. Needs the gate extra "
+    "(pip install 'presidio-hardened-ai[gate]')."
+)
+_GATE_TRUST_HELP = (
+    "Trust-store JSON for --gate-certificate, in ikigov-assess's format: the issuer and "
+    "every signer of an embedded evidence-ref. Required with --gate-certificate."
+)
+
+
+def _resolve_gate_parents(
+    parents: list[str], gate_certificate: list[Path] | None, gate_trust: Path | None
+) -> list[str]:
+    """Verify each --gate-certificate and append its identity to ``parents``.
+
+    Without --gate-certificate the parents are returned unchanged. Any refusal exits 1
+    before the ledger is touched.
+    """
+    from presidio_ai.gate_certificate import GateCertificateError, verify_gate_certificates
+
+    if not gate_certificate:
+        if gate_trust is not None:
+            _err("error: --gate-trust given without --gate-certificate; nothing charged")
+            raise typer.Exit(1)
+        return parents
+    if gate_trust is None:
+        _err(
+            "error: --gate-certificate requires --gate-trust; a certificate is never used "
+            "unverified; nothing charged"
+        )
+        raise typer.Exit(1)
+    try:
+        identities = verify_gate_certificates(list(gate_certificate), gate_trust)
+    except GateCertificateError as exc:
+        log_security_event(
+            {"event": "pai-gate-certificate-refused", "certificates": len(gate_certificate)}
+        )
+        _err(f"GATE CERTIFICATE REFUSED: {exc}; nothing charged")
+        raise typer.Exit(1) from exc
+    log_security_event({"event": "pai-gate-certificate-verified", "certificates": len(identities)})
+    return normalize_parents([*parents, *identities])
+
+
 def _parse_jsonl(text: str) -> list[object]:
     records: list[object] = []
     for n, line in enumerate(text.splitlines(), 1):
@@ -282,6 +329,10 @@ def dp_train(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
     ),
     parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
+    gate_certificate: list[Path] | None = typer.Option(
+        None, "--gate-certificate", help=_GATE_CERTIFICATE_HELP
+    ),
+    gate_trust: Path | None = typer.Option(None, "--gate-trust", help=_GATE_TRUST_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Train a DP-SGD logistic model, charge the budget, optionally export evidence.
@@ -291,7 +342,7 @@ def dp_train(
     """
     resolved_key = _resolve_key(key)
     job_id = validate_identifier(job_id, what="job-id")
-    parents = _resolve_parents(parent)
+    parents = _resolve_gate_parents(_resolve_parents(parent), gate_certificate, gate_trust)
     try:
         validate_path(str(input))
         if not input.exists():
@@ -651,12 +702,16 @@ def dp_charge(
         None, "--approval", help="Approval as id:hexsig (repeatable)."
     ),
     parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
+    gate_certificate: list[Path] | None = typer.Option(
+        None, "--gate-certificate", help=_GATE_CERTIFICATE_HELP
+    ),
+    gate_trust: Path | None = typer.Option(None, "--gate-trust", help=_GATE_TRUST_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Account a DP-SGD job, charge it to the ledger budget, optionally export evidence."""
     resolved_key = _resolve_key(key)
     job_id = validate_identifier(job_id, what="job-id")
-    parents = _resolve_parents(parent)
+    parents = _resolve_gate_parents(_resolve_parents(parent), gate_certificate, gate_trust)
     try:
         policy = None
         keys: dict[str, str] = {}
@@ -801,11 +856,15 @@ def consortium_round(
         None, "--signing-key", help="Ed25519 private key hex (for --algorithm ed25519)."
     ),
     parent: list[str] | None = typer.Option(None, "--parent", help=_PARENT_HELP),
+    gate_certificate: list[Path] | None = typer.Option(
+        None, "--gate-certificate", help=_GATE_CERTIFICATE_HELP
+    ),
+    gate_trust: Path | None = typer.Option(None, "--gate-trust", help=_GATE_TRUST_HELP),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Machine-readable JSON only."),
 ) -> None:
     """Run one governed secure-aggregation round: MPA -> aggregate -> per-silo charge -> D4."""
     resolved_key = _resolve_key(key)
-    parents = _resolve_parents(parent)
+    parents = _resolve_gate_parents(_resolve_parents(parent), gate_certificate, gate_trust)
     try:
         spec = json.loads(round_file.read_text(encoding="utf-8"))
         round_id = validate_identifier(str(spec["round_id"]), what="round-id")

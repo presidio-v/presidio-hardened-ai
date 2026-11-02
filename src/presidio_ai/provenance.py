@@ -12,7 +12,10 @@ Rules implemented here:
 * **P3** order is preserved, duplicates are dropped (first occurrence wins), and the
   field is omitted when empty, so a parent-less payload hashes exactly as it did
   before the field existed;
-* **P4** producers do not resolve parents; walking the DAG is the consumer's job.
+* **P4** producers do not resolve parents; walking the DAG is the consumer's job. The
+  one exception is producer policy (family ADR-0006 G4): a gate certificate given with
+  ``--gate-certificate`` is verified before its identity becomes a parent
+  (:mod:`presidio_ai.gate_certificate`).
 """
 
 from __future__ import annotations
