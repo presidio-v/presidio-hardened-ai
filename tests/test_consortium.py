@@ -8,7 +8,13 @@ import random
 import pytest
 
 from presidio_ai.dp.accountant import dpsgd_epsilon
-from presidio_ai.dp.authorization import MPADenied, MPAPolicy, request_hash, sign_approval
+from presidio_ai.dp.authorization import (
+    MPADenied,
+    MPAPolicy,
+    build_request,
+    request_hash,
+    sign_approval,
+)
 from presidio_ai.dp.budget import AUTHORIZED_EVENT, EpsilonBudget
 from presidio_ai.evidence import consortium_commitment, sign_evidence
 from presidio_ai.fl.consortium import CONSORTIUM_EVENT, ConsortiumError, run_consortium_round
@@ -134,7 +140,7 @@ def test_round_requires_mpa_above_threshold(tmp_path):
         )
 
     # Two valid approvals -> authorized.
-    req_hash = request_hash({"job_id": "consortium/r3", **gating.as_dict()})
+    req_hash = request_hash(build_request(gating, job_id="consortium/r3"))
     approver_keys = {"cro": "k-cro", "dpo": "k-dpo"}
     approvals = {
         a: sign_approval(req_hash, approver_id=a, approver_key=k) for a, k in approver_keys.items()

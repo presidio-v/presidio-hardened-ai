@@ -46,8 +46,9 @@ CLI command: `pai`
 
 ## Technical Requirements
 
-- Python 3.10+ (family baseline from ikigov v0.9.0; 3.9 is EOL and pins a vulnerable
-  `urllib3` in the dev/audit tree).
+- Python 3.11+ (3.10 reached end of life in October 2026; same floor as presidio-evidence
+  and ikigov-assess).
+- Runtime dependency on `presidio-evidence` (canonical JSON, evidence signing, envelope).
 - `pyproject.toml` + hatchling + Typer CLI; `src/presidio_ai/` layout.
 - 80%+ test coverage with pytest; ruff lint + format clean.
 - LICENSE = MIT. Version = 0.30.0.

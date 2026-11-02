@@ -1,5 +1,34 @@
 # Migration notes
 
+## 0.32.0: presidio-evidence dependency, legacy encoder removed, Python 3.11+
+
+### What changed
+
+- **presidio-evidence is a dependency.** Canonical JSON (`hashing.canonical_json`,
+  alias `canonical_bytes`), the evidence signing message, HMAC and Ed25519 signing and
+  verification, key generation and the evidence envelope written by `export_evidence`
+  now come from the `presidio-evidence` package (its `docs/MIGRATION.md` step 2). No
+  signed byte changes: the pinned vectors in `tests/vectors/` pass unchanged, and a
+  test checks them against the installed library's vectors. The HMAC ledger chain stays
+  in this repository (ledger is not evidence). `[crypto]` now installs
+  `presidio-evidence[crypto]`.
+- **The pre-0.31 encoder is removed** ([#74](https://github.com/presidio-v/presidio-hardened-ai/issues/74)).
+  `_legacy_canonical_v0`, `legacy_sha256_hex_v0`, the legacy branch of `canonical_for` and the
+  untagged-request fallback in `authorize_request` are gone. `verify_chain` rejects any
+  untagged entry (`untagged pre-0.31 entry at seq N`), `request_hash` rejects an
+  untagged request, and approvals countersigned over one no longer authorize a charge.
+  `EpsilonBudget` reads only verified, strict-canonical entries, so a recorded float is
+  rejected. The removal comes earlier than the trigger #74 set (2027-10-18 or v1.0.0)
+  because no release containing the legacy path was ever published: the package's first
+  public release is 0.32.0, so no user holds a pre-0.31 ledger or approval.
+- **Python 3.11+.** Python 3.10 reached end of life in October 2026.
+
+### If you hold pre-0.31 records
+
+Verify them with a 0.31 checkout (`pai verify --ledger <file> --quiet`) and archive the
+output with the ledger before upgrading. Re-sign pending approvals over the tagged
+request (`pai dp-authorize`). Start a new ledger for 0.32.
+
 ## 0.31.0: strict canonical encoding, `canon` tags, provenance parents
 
 ### What changed
@@ -39,29 +68,11 @@
 - Approval countersignatures, survivor-set MACs and key-agreement fingerprints are over
   float-free messages and are byte-identical under both encoders.
 
-### Legacy verification
+### Legacy verification (0.31 only, removed in 0.32)
 
-`presidio_ai.hashing._legacy_canonical_v0` is a frozen copy of the pre-0.31 encoder,
-used **only** to verify:
-
-- ledger entries without a `canon` tag. `verify_chain` uses it for those entries and
-  the strict encoder for tagged ones. An untagged entry *after* a tagged one is rejected
-  (that would be a downgrade), as is any tag other than `1`;
-- approvals collected before the upgrade for a job not yet charged. `authorize_request`
-  tries the tagged request first; if its approvals fall short of the threshold it tries
-  the untagged legacy request (`_legacy_request_v0`). A charge is authorized by one
-  form or the other, never by a mix. The `mpa-authorized` ledger entry records which in
-  `request_canon` (`1` or `0`). A legacy request binds the raw float epsilon, which is
-  recomputed at charge time, so pre-0.31 approvals authorize only where the accountant
-  reproduces that float bit for bit, in practice the same platform and library versions
-  that produced it. Anywhere else the charge is denied (fail-closed); collect new,
-  tagged approvals instead.
-
-`EpsilonBudget.spent()` sums legacy float epsilons and new decimal-string epsilons
-exactly (`decimal.Decimal`).
-
-`tests/fixtures/legacy-v0.30/` holds a ledger and pending approvals produced by the
-0.30.0 code; `tests/test_legacy_canon.py` keeps them verifying.
+In 0.31, `_legacy_canonical_v0` (a frozen copy of the pre-0.31 encoder) verified
+ledger entries without a `canon` tag and approvals collected before the upgrade over
+the untagged request. 0.32 removed it; see above.
 
 ### Hashes that change for new records
 
@@ -71,11 +82,7 @@ content hashes and the ingest source and content commitments (new scopes). Old r
 are unaffected. Parent-less records hash exactly as they would without the `parents`
 feature; `tests/test_provenance.py` pins two such hashes.
 
-### Removal trigger for the legacy encoder
+### Removal of the legacy encoder
 
-Tracked in [#74](https://github.com/presidio-v/presidio-hardened-ai/issues/74):
-remove `_legacy_canonical_v0` and the legacy request fallback in the first release on
-or after **2027-10-18**, or at **v1.0.0**, whichever comes first. Before that release,
-run `pai verify --ledger <file> --quiet` on every ledger that still holds untagged
-entries and archive the output with the ledger; pending pre-0.31 approvals must be
-re-signed over the tagged request. After removal, untagged entries fail closed.
+Done in 0.32.0 ([#74](https://github.com/presidio-v/presidio-hardened-ai/issues/74)); see
+the 0.32.0 section.

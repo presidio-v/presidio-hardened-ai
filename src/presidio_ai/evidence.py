@@ -14,14 +14,18 @@ later phases so the export never overstates what the ledger proves.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+import presidio_evidence
+
 from presidio_ai import __version__
-from presidio_ai.hashing import canonical_bytes, constant_time_equals, hmac_hex, sha256_hex
+from presidio_ai.hashing import constant_time_equals, sha256_hex
 from presidio_ai.ingest import IngestResult
 from presidio_ai.ledger import Ledger
 from presidio_ai.numeric import encode_field
@@ -53,13 +57,19 @@ class EvidenceRef:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def sign_evidence(content_hash: str, key: bytes | str, signer: str) -> str:
-    """Detached HMAC-SHA256 signature over ``content_hash`` bound to ``signer``."""
+    """Detached HMAC-SHA256 signature over ``content_hash`` bound to ``signer``.
+
+    The message is presidio-evidence's ``signing_message``; a ``str`` key gives the
+    same bytes as :func:`presidio_evidence.sign_hmac`, and a ``bytes`` key is used
+    as is.
+    """
     key_bytes = key.encode("utf-8") if isinstance(key, str) else key
-    return hmac_hex(key_bytes, {"content_hash": content_hash, "signer": signer})
+    message = presidio_evidence.signing_message(content_hash, signer)
+    return hmac.new(key_bytes, message, hashlib.sha256).hexdigest()
 
 
 def verify_evidence(ref: EvidenceRef, key: bytes | str) -> bool:
@@ -69,52 +79,27 @@ def verify_evidence(ref: EvidenceRef, key: bytes | str) -> bool:
 
 
 # ── Public-key signing (Ed25519) — optional [crypto] extra ───────────────────
-# The signing algorithm is a property of the verifier's trust store (the verifier
-# knows whether signer X uses an HMAC secret or an Ed25519 public key), so the
-# EvidenceRef contract stays unchanged. Ed25519 signatures are 64 bytes / 128 hex,
-# within the contract's hex bound. HMAC remains the default until consumers verify
-# Ed25519; flip the default once the trust stores are provisioned with public keys.
+# The primitives are presidio-evidence's. The signing algorithm is a property of
+# the verifier's trust store (the verifier knows whether signer X uses an HMAC
+# secret or an Ed25519 public key), so the EvidenceRef contract stays unchanged.
+# Ed25519 (the default since 0.8.0) signatures are 64 bytes / 128 hex, within the
+# contract's hex bound.
 SIGNING_ALGORITHMS = ("hmac-sha256", "ed25519")
-
-
-def _require_crypto():
-    try:
-        from cryptography.hazmat.primitives.asymmetric import ed25519
-    except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise ImportError(
-            "Ed25519 signing needs the optional extra: pip install 'presidio-hardened-ai[crypto]'"
-        ) from exc
-    return ed25519
 
 
 def generate_ed25519_keypair() -> tuple[str, str]:
     """Return (private_key_hex, public_key_hex). Keep the private key secret."""
-    ed25519 = _require_crypto()
-    sk = ed25519.Ed25519PrivateKey.generate()
-    return sk.private_bytes_raw().hex(), sk.public_key().public_bytes_raw().hex()
+    return presidio_evidence.generate_ed25519_keypair()
 
 
 def sign_ed25519(content_hash: str, signer: str, private_key_hex: str) -> str:
     """Detached Ed25519 signature over the canonical {content_hash, signer} message."""
-    ed25519 = _require_crypto()
-    sk = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_key_hex))
-    return sk.sign(canonical_bytes({"content_hash": content_hash, "signer": signer})).hex()
+    return presidio_evidence.sign_ed25519(content_hash, signer, private_key_hex)
 
 
 def verify_ed25519(content_hash: str, signer: str, signature_hex: str, public_key_hex: str) -> bool:
     """Verify an Ed25519 signature against a public key (fail-closed)."""
-    from cryptography.exceptions import InvalidSignature
-
-    ed25519 = _require_crypto()
-    try:
-        pk = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
-        pk.verify(
-            bytes.fromhex(signature_hex),
-            canonical_bytes({"content_hash": content_hash, "signer": signer}),
-        )
-        return True
-    except (InvalidSignature, ValueError):
-        return False
+    return presidio_evidence.verify_ed25519(content_hash, signer, signature_hex, public_key_hex)
 
 
 def _sign(content_hash: str, signer: str, *, algorithm: str, signing_key: bytes | str) -> str:
@@ -196,14 +181,13 @@ def build_ingest_evidence(
 def export_evidence(refs: list[EvidenceRef], path: str | Path, *, use_case: str) -> Path:
     """Write refs as the JSON document ``iga assess --evidence`` consumes."""
     path = Path(path)
-    document = {
-        "schema": "presidio-hardened/evidence-ref@1",
-        "use_case": use_case,
-        "source": SOURCE,
-        "source_version": __version__,
-        "generated_at": _utc_now(),
-        "evidence": [r.to_dict() for r in refs],
-    }
+    document = presidio_evidence.build_envelope(
+        [r.to_dict() for r in refs],
+        source=SOURCE,
+        source_version=__version__,
+        use_case=use_case,
+        generated_at=_utc_now(),
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2, ensure_ascii=False), encoding="utf-8")
     return path

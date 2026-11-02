@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import fields
 
+import presidio_evidence
+
 from presidio_ai.evidence import (
     SUPPORTED_ITEMS,
     EvidenceRef,
@@ -19,21 +21,13 @@ from presidio_ai.ledger import Ledger
 KEY = "k"
 SIGNING = "sig-key"
 
-# The EvidenceRef field set is the cross-repo contract with ikigov v0.13.0.
-CONTRACT_FIELDS = {
-    "item_id",
-    "source",
-    "source_version",
-    "ledger_ref",
-    "content_hash",
-    "signer",
-    "signature",
-    "claimed_at",
-}
+# The EvidenceRef field set is the family contract, owned by presidio-evidence.
+CONTRACT_FIELDS = presidio_evidence.EVIDENCE_REF_FIELDS
 
 
 def test_evidence_ref_matches_contract():
-    assert {f.name for f in fields(EvidenceRef)} == CONTRACT_FIELDS
+    # Same fields in the same order: the wire object is built from this dataclass.
+    assert tuple(f.name for f in fields(EvidenceRef)) == CONTRACT_FIELDS
 
 
 def test_sign_verify_roundtrip():
@@ -98,4 +92,4 @@ def test_export_shape(tmp_path):
     assert doc["schema"] == "presidio-hardened/evidence-ref@1"
     assert doc["use_case"] == "fraud-scoring"
     assert len(doc["evidence"]) == 3
-    assert set(doc["evidence"][0]) == CONTRACT_FIELDS
+    assert tuple(doc["evidence"][0]) == CONTRACT_FIELDS
