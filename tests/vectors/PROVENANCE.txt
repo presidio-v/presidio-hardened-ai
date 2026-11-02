@@ -1,7 +1,7 @@
 Golden vectors copied verbatim from presidio-evidence (append-only, ADR-0001 D5).
 
 Source:  https://github.com/presidio-v/presidio-evidence
-Commit:  c5dba8be30d04f7e39fbd5ff19ae69307fbdf539 (copied 2026-10-18)
+Copied:  2026-10-18, before the repository was published
 
   tests/vectors/canonical-json/vectors.json          <- vectors/canonical-json/vectors.json
   tests/vectors/signing/hmac-sha256-golden.json      <- vectors/signing/hmac-sha256-golden.json
@@ -12,5 +12,12 @@ sha256 at copy time:
   89ad270a83d4abba8b716fc95e68fbf893d13993587dc341749df1cdfb64511b  signing/hmac-sha256-golden.json
   6f3cf23892d16b017bb48a672db3c5ca54a364c843c7377410ceec08f3501baf  signing/ed25519-golden.json
 
+Against the published package (presidio-evidence 0.5.1, tag v0.5.1 = 2ab6905): the
+first two files are byte-identical. In ed25519-golden.json only the "description"
+text differs (the published copy names the consumers differently); every key,
+message and signature is the same. tests/test_canonical_conformance.py checks both:
+the code against these copies, and these copies against the installed library's
+vectors, ignoring "description".
+
 Do not edit these files. If presidio-evidence publishes new vectors, copy them in as
-new files and update this note. Exercised by tests/test_canonical_conformance.py.
+new files and update this note.

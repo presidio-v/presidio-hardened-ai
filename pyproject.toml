@@ -7,7 +7,7 @@ name = "presidio-hardened-ai"
 version = "0.31.0"
 description = "Training-time privacy for AI: tamper-evident PII-scrub + data-lineage ledger that emits signed governance evidence for the presidio-hardened-* suite."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "Presidio Security" }]
 keywords = [
@@ -25,14 +25,19 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
 ]
-dependencies = ["typer>=0.12"]
+# presidio-evidence: the family's canonical JSON and evidence signing (stdlib-only
+# without its [crypto] extra).
+dependencies = ["typer>=0.12", "presidio-evidence>=0.5.1,<0.6"]
 
 [project.optional-dependencies]
 nlp = ["presidio-analyzer>=2.2", "spacy>=3.7"]
 torch = ["opacus>=1.4", "torch>=2.0"]
-crypto = ["cryptography>=42"]
+crypto = ["presidio-evidence[crypto]>=0.5.1,<0.6"]
 mpc = ["cryptography>=42", "uvicorn>=0.30", "starlette>=0.37"]
 # [zk] activates the audited Ristretto255 + Bulletproofs backend (ADR-0004), built from
 # rust/ via maturin (`maturin build -m rust/Cargo.toml`) -> the `presidio_ai_zk` wheel.
@@ -60,7 +65,7 @@ Source = "https://github.com/presidio-v/presidio-hardened-ai"
 packages = ["src/presidio_ai"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]

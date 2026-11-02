@@ -10,8 +10,27 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
-Version 0.31.0. Depends on the family numeric-encoding rule (presidio-evidence ADR-0005,
-in draft); see `MIGRATION.md`.
+### Changed
+- **Requires Python 3.11 or newer.** Python 3.10 reached end of life in October 2026.
+  CI runs the full gate on 3.11 and the test suite on 3.12 and 3.13.
+- **presidio-evidence is a runtime dependency** (`>=0.5.1,<0.6`). Canonical JSON, the
+  evidence signing message, HMAC and Ed25519 signing and verification, key generation
+  and the `export_evidence` envelope come from the library; no signed byte changes (the
+  pinned vectors pass unchanged and are checked against the installed library's). The
+  `[crypto]` extra installs `presidio-evidence[crypto]`.
+- The `EvidenceRef` contract test asserts against `presidio_evidence.EVIDENCE_REF_FIELDS`,
+  in field order.
+
+### Removed
+- The pre-0.31 encoder and every path that used it (#74): `_legacy_canonical_v0`,
+  `legacy_sha256_hex_v0`, the legacy branch of `canonical_for` and the untagged-request
+  fallback in `authorize_request`. Untagged ledger entries and approvals over untagged
+  requests now fail closed. See `MIGRATION.md` for pre-0.31 records.
+
+## [0.31.0] — 2026-10-18 (not published)
+
+Depends on the family numeric-encoding rule (presidio-evidence ADR-0005, in draft); see
+`MIGRATION.md`.
 
 ### Added
 - Provenance `parents` (presidio-evidence ADR-0002) in DP, consortium and ingest evidence

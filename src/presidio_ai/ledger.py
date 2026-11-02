@@ -7,9 +7,9 @@ first entry chains from a fixed genesis.
 ``canon`` names the canonicaliser the MAC was computed over. Entries written since
 0.31 carry ``canon: 1`` (strict profile, floats rejected) and the tag is itself
 covered by the MAC, so it cannot be stripped. Entries without the tag were written
-before 0.31 and verify through the frozen legacy encoder; their stored bytes are
-never rewritten (see ``MIGRATION.md``). Any insertion, deletion, reordering, or in-place
-edit breaks the chain and is detected by :func:`verify_chain`.
+before 0.31; since 0.32 they fail verification (see ``MIGRATION.md``). Any insertion,
+deletion, reordering, or in-place edit breaks the chain and is detected by
+:func:`verify_chain`.
 
 Invariant: ``payload`` carries **commitments and structural metadata only** — hashes,
 counts, identifiers — never raw PII or organisational content. Callers are responsible
@@ -21,12 +21,11 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from presidio_ai.hashing import (
-    CANON_LEGACY,
     CANON_STRICT,
     CanonicalError,
     constant_time_equals,
@@ -49,7 +48,7 @@ class LedgerEntry:
     payload: dict[str, Any]
     prev_hash: str
     entry_hash: str
-    canon: int | None = None  # None: untagged pre-0.31 entry (legacy encoder)
+    canon: int | None = None  # None: untagged pre-0.31 entry (rejected by verify_chain)
 
     def signed_view(self) -> dict[str, Any]:
         """The fields covered by ``entry_hash`` (everything except the hash itself)."""
@@ -63,10 +62,6 @@ class LedgerEntry:
         if self.canon is not None:
             view["canon"] = self.canon
         return view
-
-    @property
-    def effective_canon(self) -> int:
-        return CANON_LEGACY if self.canon is None else self.canon
 
     def to_record(self) -> dict[str, Any]:
         """The stored JSON-L object (an untagged entry stays untagged)."""
@@ -89,7 +84,7 @@ def _resolve_key(key: bytes | str | None) -> bytes:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Ledger:
@@ -187,21 +182,20 @@ def verify_chain(path: str | Path, key: bytes | str | None = None) -> list[Ledge
 
     entries = list(ledger._iter_entries())
     prev = GENESIS_HASH
-    seen_tagged = False
     for i, entry in enumerate(entries):
         if entry.seq != i:
             raise LedgerError(f"non-contiguous seq at position {i}: got {entry.seq}")
         if entry.prev_hash != prev:
             raise LedgerError(f"broken link at seq {entry.seq}: prev_hash mismatch")
-        if entry.canon is not None and entry.canon != CANON_STRICT:
+        if entry.canon is None:
+            raise LedgerError(
+                f"untagged pre-0.31 entry at seq {entry.seq}: no longer verifiable "
+                "(support removed in 0.32, see MIGRATION.md)"
+            )
+        if entry.canon != CANON_STRICT or isinstance(entry.canon, bool):
             raise LedgerError(f"unsupported canon tag at seq {entry.seq}: {entry.canon!r}")
-        if entry.canon is None and seen_tagged:
-            # Legacy entries can only precede the first tagged one; an untagged entry
-            # after it would be a downgrade to the float-tolerant encoder.
-            raise LedgerError(f"untagged entry at seq {entry.seq} after a canon-tagged entry")
-        seen_tagged = seen_tagged or entry.canon is not None
         try:
-            recomputed = hmac_hex(resolved, entry.signed_view(), canon=entry.effective_canon)
+            recomputed = hmac_hex(resolved, entry.signed_view(), canon=entry.canon)
         except CanonicalError as exc:
             raise LedgerError(f"unverifiable entry at seq {entry.seq}: {exc}") from exc
         if not constant_time_equals(recomputed, entry.entry_hash):

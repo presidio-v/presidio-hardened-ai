@@ -35,8 +35,11 @@ AUTHORIZED_EVENT = "mpa-authorized"
 
 
 def _as_decimal(value: object) -> Decimal:
-    """Exact value of a recorded epsilon/delta: a decimal string (0.31+) or a legacy float."""
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+    """Exact value of a recorded epsilon/delta (a decimal string; 0 when absent).
+
+    Verified entries are strict-canonical, so a float cannot appear here.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ValueError(f"malformed recorded privacy parameter: {value!r}")
     try:
         out = Decimal(value)

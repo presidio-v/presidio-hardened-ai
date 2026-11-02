@@ -11,11 +11,10 @@ Approval is over a canonical *authorization request* derived from the job's priv
 parameters, so an approval cannot be replayed onto a different job or different
 (epsilon, delta) without invalidating the signature.
 
-Requests built since 0.31 carry ``canon: 1`` and hash under the strict canonical
-profile with decimal-string parameters. An approval countersigned before 0.31 is
-over the *untagged* legacy request (float parameters, frozen legacy encoder); it
-still verifies for the same job and parameters, but a charge is authorized by one
-request form or the other, never a mix of approvals across both.
+Requests carry ``canon: 1`` and hash under the strict canonical profile with
+decimal-string parameters. Approvals countersigned before 0.31 over the untagged
+request are void since 0.32; approvers re-sign the tagged request (see
+``MIGRATION.md``).
 """
 
 from __future__ import annotations
@@ -25,11 +24,9 @@ from dataclasses import dataclass
 
 from presidio_ai.dp.accountant import DPResult
 from presidio_ai.hashing import (
-    CANON_LEGACY,
     CANON_STRICT,
     constant_time_equals,
     hmac_hex,
-    legacy_sha256_hex_v0,
     sha256_hex,
 )
 
@@ -60,20 +57,16 @@ def build_request(result: DPResult, *, job_id: str) -> dict[str, object]:
     return {"canon": CANON_STRICT, "job_id": job_id, **result.signed_dict()}
 
 
-def _legacy_request_v0(result: DPResult, *, job_id: str) -> dict[str, object]:
-    """Verify-only: the untagged pre-0.31 request that older approvals countersign."""
-    return {"job_id": job_id, **result.as_dict()}
-
-
 def request_hash(request: Mapping[str, object]) -> str:
-    """Hash a request under the canonicaliser its ``canon`` tag names.
+    """Hash a request under the strict profile; it must carry ``canon: 1``.
 
-    Tagged (``canon: 1``) requests use the strict profile; an untagged request is a
-    pre-0.31 one and is hashed with the frozen legacy encoder, for verification only.
+    An untagged (pre-0.31) request fails closed.
     """
     request = dict(request)
     if "canon" not in request:
-        return legacy_sha256_hex_v0(request)
+        raise ValueError(
+            "untagged authorization request: pre-0.31 requests are no longer supported"
+        )
     if request["canon"] != CANON_STRICT or isinstance(request["canon"], bool):
         raise ValueError(f"unsupported request canon tag: {request['canon']!r}")
     return sha256_hex(request)
@@ -144,26 +137,18 @@ def authorize_request(
     approvals: Mapping[str, str],
     approver_keys: Mapping[str, str],
 ) -> tuple[str, Sequence[str], int]:
-    """Like :func:`authorize`, also returning the ``canon`` of the request that passed.
+    """Like :func:`authorize`, also returning the ``canon`` of the approved request.
 
-    The current (``canon: 1``) request is tried first; approvals collected before 0.31
-    over the untagged legacy request are accepted only if they alone meet the threshold.
+    The ``canon`` is always :data:`CANON_STRICT`; it is returned so the ledger records
+    which request form the approvals countersigned.
     """
     req_hash = request_hash(build_request(result, job_id=job_id))
     approved = valid_approvers(
         req_hash, approvals=approvals, approver_keys=approver_keys, policy=policy
     )
-    canon = CANON_STRICT
-    if len(approved) < policy.threshold:
-        legacy_hash = request_hash(_legacy_request_v0(result, job_id=job_id))
-        legacy_approved = valid_approvers(
-            legacy_hash, approvals=approvals, approver_keys=approver_keys, policy=policy
-        )
-        if len(legacy_approved) >= policy.threshold:
-            req_hash, approved, canon = legacy_hash, legacy_approved, CANON_LEGACY
     if len(approved) < policy.threshold:
         raise MPADenied(
             f"job '{job_id}' needs {policy.threshold} approval(s) for epsilon="
             f"{result.epsilon:.4f}; got {len(approved)} valid ({', '.join(approved) or 'none'})"
         )
-    return req_hash, approved, canon
+    return req_hash, approved, CANON_STRICT

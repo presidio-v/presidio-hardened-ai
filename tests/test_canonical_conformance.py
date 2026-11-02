@@ -1,8 +1,9 @@
 """Conformance of presidio_ai.hashing against the presidio-evidence golden vectors.
 
-The files under tests/vectors/ are verbatim copies from presidio-evidence (see
-tests/vectors/PROVENANCE.txt). Passing them means the planned import swap to
-presidio-evidence (its MIGRATION.md step 2) changes no signed bytes.
+Since 0.32 the encoding and the signing primitives come from the presidio-evidence
+package. The files under tests/vectors/ are this repository's own pinned copies of
+the library's vectors (see tests/vectors/PROVENANCE.txt), so a library release that
+changed any signed byte fails here, independently of the library's own tests.
 """
 
 from __future__ import annotations
@@ -11,12 +12,12 @@ import hashlib
 import json
 from pathlib import Path
 
+import presidio_evidence
 import pytest
 
 from presidio_ai.evidence import sign_evidence, verify_evidence
 from presidio_ai.hashing import (
     CanonicalError,
-    _legacy_canonical_v0,
     canonical_bytes,
     canonical_json,
     hmac_hex,
@@ -61,13 +62,48 @@ def test_strict_rejects_float_keys_and_unserialisable():
 
 
 @pytest.mark.parametrize("case", CANON["cases"], ids=lambda c: c["name"])
-def test_legacy_matches_strict_on_float_free_payloads(case):
-    # Why existing string-only signatures verify unchanged after the switch.
-    assert _legacy_canonical_v0(case["payload"]) == canonical_json(case["payload"])
+def test_encoding_is_the_library_encoding(case):
+    assert canonical_json(case["payload"]) == presidio_evidence.canonical_bytes(case["payload"])
 
 
 def test_canonical_bytes_is_the_strict_encoder():
     assert canonical_bytes is canonical_json
+
+
+def test_hmac_signing_matches_the_library():
+    for key in (HMAC["key"], HMAC["key"].encode("utf-8")):
+        assert sign_evidence(HMAC["content_hash"], key, HMAC["signer"]) == (
+            presidio_evidence.sign_hmac(HMAC["content_hash"], HMAC["signer"], HMAC["key"])
+        )
+
+
+def test_export_uses_the_library_envelope(tmp_path):
+    from presidio_ai.evidence import EvidenceRef, export_evidence
+
+    ref = EvidenceRef(
+        item_id="D4",
+        source="presidio-hardened-ai",
+        source_version="test",
+        ledger_ref="pai-ledger:seq/0",
+        content_hash=HMAC["content_hash"],
+        signer=HMAC["signer"],
+        signature=HMAC["signature_hex"],
+        claimed_at="2026-01-01T00:00:00+00:00",
+    )
+    path = export_evidence([ref], tmp_path / "e.json", use_case="test")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    assert list(document) == [
+        "schema",
+        "use_case",
+        "source",
+        "source_version",
+        "generated_at",
+        "evidence",
+    ]
+    assert (
+        presidio_evidence.load_evidence(path.read_text(encoding="utf-8"))[0].signature
+        == (HMAC["signature_hex"])
+    )
 
 
 def test_hmac_signing_vector():
@@ -108,3 +144,20 @@ def test_ed25519_signing_vector():
             case["content_hash"], case["signer"], case["signature_hex"], case["public_key_hex"]
         )
         assert ok is case["verifies"], case["reason"]
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "canonical-json/vectors.json",
+        "signing/hmac-sha256-golden.json",
+        "signing/ed25519-golden.json",
+    ],
+)
+def test_pinned_vectors_match_the_installed_library(rel):
+    library = Path(presidio_evidence.vectors_dir()) / rel
+    pinned = json.loads((VECTORS / rel).read_text(encoding="utf-8"))
+    published = json.loads(library.read_text(encoding="utf-8"))
+    pinned.pop("description", None)
+    published.pop("description", None)
+    assert pinned == published

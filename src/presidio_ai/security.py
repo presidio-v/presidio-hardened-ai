@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +45,7 @@ def reset_session_count() -> None:
 
 def log_security_event(event: dict[str, Any]) -> None:
     """Append a structural event. Best-effort: logging never breaks the operation."""
-    record = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+    record = {"ts": datetime.now(UTC).isoformat(), **event}
     try:
         directory = home_dir()
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
