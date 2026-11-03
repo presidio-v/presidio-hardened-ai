@@ -4,6 +4,7 @@ import json
 from dataclasses import fields
 
 import presidio_evidence
+import pytest
 
 from presidio_ai.evidence import (
     SUPPORTED_ITEMS,
@@ -93,3 +94,9 @@ def test_export_shape(tmp_path):
     assert doc["use_case"] == "fraud-scoring"
     assert len(doc["evidence"]) == 3
     assert tuple(doc["evidence"][0]) == CONTRACT_FIELDS
+
+
+@pytest.mark.parametrize("bad", ["é" * 64, "\ud800" * 64, ""])
+def test_non_ascii_signature_fails_closed(bad):
+    ref = EvidenceRef("D1", "presidio-hardened-ai", "0.1.0", "r", "deadbeef", "me", bad, "t")
+    assert verify_evidence(ref, SIGNING) is False

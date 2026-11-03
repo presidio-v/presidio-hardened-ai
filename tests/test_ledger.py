@@ -151,3 +151,72 @@ def test_file_permissions_0600(tmp_path):
     Ledger(path, key=KEY).append("a", {"i": 0})
     mode = stat.S_IMODE(path.stat().st_mode)
     assert mode == 0o600
+
+
+# --- malformed ledger files fail with LedgerError, not a raw exception -------
+
+_GOOD = {
+    "seq": 0,
+    "timestamp": "t",
+    "event": "e",
+    "payload": {},
+    "prev_hash": GENESIS_HASH,
+    "entry_hash": "00",
+    "canon": 1,
+}
+
+
+def _line(**changes):
+    rec = {**_GOOD, **changes}
+    return json.dumps({k: v for k, v in rec.items() if v is not _DROP}).encode()
+
+
+_DROP = object()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"not json",
+        b"[1, 2]",
+        b'"a string"',
+        b"\xff\xfe",
+        b'{"seq": 0}',
+        _line(extra="x"),
+        _line(timestamp=_DROP),
+        _line(seq="0"),
+        _line(seq=True),
+        _line(canon="1"),
+        _line(canon=False),
+        _line(payload=[]),
+        _line(event=None),
+        _line(entry_hash=5),
+        _line(prev_hash=[]),
+    ],
+    ids=lambda d: d[:24].decode("utf-8", "replace"),
+)
+def test_malformed_entry_raises_ledger_error(tmp_path, data):
+    path = tmp_path / "bad.jsonl"
+    path.write_bytes(data + b"\n")
+    with pytest.raises(LedgerError):
+        verify_chain(path, key=KEY)
+    with pytest.raises(LedgerError):
+        Ledger(path, key=KEY)
+
+
+@pytest.mark.parametrize("bad", ["é" * 64, "\ud800" * 64])
+def test_non_ascii_entry_hash_is_a_mac_mismatch(tmp_path, bad):
+    path = tmp_path / "ledger.jsonl"
+    Ledger(path, key=KEY).append("data-ingested", {"n_records": 1})
+    record = json.loads(path.read_text())
+    record["entry_hash"] = bad
+    path.write_text(json.dumps(record) + "\n")
+    with pytest.raises(LedgerError, match="MAC mismatch"):
+        verify_chain(path, key=KEY)
+
+
+def test_non_ascii_anchor_hash_does_not_match(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    Ledger(path, key=KEY).append("data-ingested", {"n_records": 1})
+    with pytest.raises(LedgerError, match="anchor"):
+        verify_chain(path, key=KEY, anchor=(0, "é" * 64))

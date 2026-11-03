@@ -1,0 +1,58 @@
+name: Fuzz
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "fuzz/**"
+      - "src/**"
+      - "pyproject.toml"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "23 6 * * 1" # Mondays 06:23 UTC, longer soak than the per-PR budget
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz (Atheris)
+    runs-on: ubuntu-24.04
+    # Linux only: Atheris ships no macOS wheel. Pinned to the Python CI fuzzes on.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --require-hashes -r .github/constraints/ci-toolchain.txt
+          python -m pip install --require-hashes -r .github/constraints/fuzz.txt
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Run fuzz harnesses (time-boxed)
+        # Runs without -O, so the harness assertions are checked.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            args="-max_total_time=60"
+          else
+            args="-max_total_time=300"
+          fi
+          python fuzz/make_corpus.py fuzz/corpus
+          for f in fuzz/fuzz_*.py; do
+            echo "::group::$f"
+            python "$f" fuzz/corpus $args
+            echo "::endgroup::"
+          done
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: atheris-crashes
+          path: crash-*
+          if-no-files-found: ignore

@@ -102,3 +102,8 @@ def test_replay_to_other_job_fails():
     approvals = {"alice": _approval("alice", job_id="job-1")}
     with pytest.raises(MPADenied):
         authorize(R, job_id="job-2", policy=policy, approvals=approvals, approver_keys=KEYS)
+
+
+@pytest.mark.parametrize("bad", ["é" * 64, "\ud800" * 64])
+def test_non_ascii_approval_signature_fails_closed(bad):
+    assert not verify_approval(_rh(), approver_id="alice", signature=bad, approver_key="ka")

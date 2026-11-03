@@ -93,6 +93,16 @@ def test_verify_detects_tamper(tmp_path, monkeypatch):
     assert json.loads(result.stdout)["ok"] is False
 
 
+def test_verify_reports_corrupt_ledger(tmp_path, monkeypatch):
+    monkeypatch.setenv("PRESIDIO_AI_LEDGER_KEY", KEY)
+    ledger = tmp_path / "ledger.jsonl"
+    ledger.write_bytes(b"not json\n")
+    result = runner.invoke(app, ["verify", "--ledger", str(ledger), "--quiet"])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert json.loads(result.stdout)["ok"] is False
+
+
 def test_missing_key_errors(tmp_path, monkeypatch):
     monkeypatch.delenv("PRESIDIO_AI_LEDGER_KEY", raising=False)
     result = runner.invoke(app, ["verify", "--ledger", str(tmp_path / "l.jsonl")])

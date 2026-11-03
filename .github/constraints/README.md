@@ -11,6 +11,8 @@ substituting the build backend, the metadata checker or the SBOM generator.
 | `twine.txt` | twine | `publish.yml` (metadata check) |
 | `cyclonedx.txt` | cyclonedx-bom | `publish.yml` (SBOM) |
 | `runtime.txt` | the package's runtime dependencies | `publish.yml` (runtime environment the SBOM describes) |
+| `ci-toolchain.txt` | pip, setuptools | `fuzz.yml` |
+| `fuzz.txt` | the `fuzz` extra + `editable-backend.in` (Python 3.12) | `fuzz.yml` |
 
 ## Regenerate
 
@@ -22,6 +24,10 @@ for base in release-build twine cyclonedx; do
 done
 uv pip compile --generate-hashes --universal --python-version 3.11 \
   --annotation-style=line ../../pyproject.toml -o runtime.txt
+uv pip compile --generate-hashes --universal --python-version 3.11 \
+  --annotation-style=line ci-toolchain.in -o ci-toolchain.txt
+uv pip compile --generate-hashes --universal --python-version 3.12 \
+  --annotation-style=line ../../pyproject.toml --extra fuzz editable-backend.in -o fuzz.txt
 ```
 
 Add `--upgrade` to move existing pins to the newest allowed versions (without
