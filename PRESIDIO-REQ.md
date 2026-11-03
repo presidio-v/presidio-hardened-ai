@@ -51,7 +51,7 @@ CLI command: `pai`
 - Runtime dependency on `presidio-evidence` (canonical JSON, evidence signing, envelope).
 - `pyproject.toml` + hatchling + Typer CLI; `src/presidio_ai/` layout.
 - 80%+ test coverage with pytest; ruff lint + format clean.
-- LICENSE = MIT. Version = 0.30.0.
+- LICENSE = MIT. Version = 0.32.0.
 
 ---
 
@@ -91,7 +91,8 @@ CLI command: `pai`
 | v0.28.0 | P4 | Bounded-norm gate on the GOD path via commitment-equality binding (ADR-0006 item 4) | Shipped |
 | v0.29.0 | P4 | Whole-consortium bounded-norm proof aggregation (cross-bound batch / native Bulletproof) | Shipped |
 | v0.30.0 | P4 | Byzantine-ML robustness gate: aggregate validation + rollback + canary (`fl.robustness`) — ADR-0007 | Shipped |
-| v0.31.0 | — | Strict canonical JSON + decimal-string privacy parameters (#68); ADR-0002 provenance `parents` + `--parent` (#67) | **Current** (unreleased) |
+| v0.31.0 | — | Strict canonical JSON + decimal-string privacy parameters (#68); ADR-0002 provenance `parents` + `--parent` (#67) | Shipped (not published) |
+| v0.32.0 | — | First public release: presidio-evidence dependency, Python 3.11+, verified `--gate-certificate` (#77), pre-publication security fixes | **Current** |
 | — | — | `ci-zk` manual until first green build on a Rust runner; then benchmarks | Deferred |
 
 ---

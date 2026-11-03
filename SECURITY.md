@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.30.x  | Yes       |
-| < 0.30  | No (upgrade to the latest 0.30.x) |
+| 0.32.x  | Yes       |
+| < 0.32  | No (never published; 0.32.0 is the first public release) |
 
 ### Supported Python runtimes
 

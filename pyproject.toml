@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.31,<2"]
 build-backend = "hatchling.build"
 
 [project]
 name = "presidio-hardened-ai"
-version = "0.31.0"
+version = "0.32.0"
 description = "Training-time privacy for AI: tamper-evident PII-scrub + data-lineage ledger that emits signed governance evidence for the presidio-hardened-* suite."
 readme = "README.md"
 requires-python = ">=3.11"
