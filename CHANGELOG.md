@@ -10,6 +10,11 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-11-03
+
+First public release, and the first published to PyPI. Versions up to 0.31.0 were
+never published.
+
 ### Added
 - `--gate-certificate PATH` (repeatable) with `--gate-trust PATH` on `dp-train`,
   `dp-charge` and `consortium-round` (#77). Each ikigov-assess `gate-certificate@1` is

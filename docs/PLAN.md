@@ -1,6 +1,7 @@
 # presidio-hardened-ai — Product & Architecture Plan
 
-> Status: draft v0.1 · 2026-06-08 · Owner: Vladimir (presidio-group.eu)
+> Status: product plan v0.1 · 2026-06-08 · Owner: Vladimir (presidio-group.eu)
+> Published with the repository on 2026-11-03; internal go-to-market notes reworded.
 > Part of the [`presidio-hardened-*`](https://github.com/presidio-v) toolkit family.
 
 ---
@@ -39,8 +40,8 @@ evidence-emitting controls.
 
 ## 2. Scope & threat model (v1)
 
-**Locked decisions:** training-time wedge · regulated EU enterprise → **financial
-services** design partner · **sovereign / on-prem** · **LLM fine-tuning** · positioning =
+**Locked decisions:** training-time scope · regulated EU enterprise → **financial
+services** first · **sovereign / on-prem** · **LLM fine-tuning** · positioning =
 **compliance evidence**.
 
 ### In scope
@@ -60,14 +61,14 @@ services** design partner · **sovereign / on-prem** · **LLM fine-tuning** · p
 - **Federated learning** — only earns its place when data legally cannot be centralised
   *even internally* (cross-border group entities). Phase 3.
 - **Inference-time security** (dual-LLM, prompt-injection, tool-use sandboxing) — a
-  different threat model and a different product. Out of this wedge entirely.
+  different threat model and a different product. Out of scope entirely.
 - **Hosted / SaaS training** — contradicts the sovereign pitch; we are never the data
   custodian.
 
 ### Forced architectural constraint
 
 DP-SGD requires gradient access, and a bank will not send transaction data to a hosted
-frontier API. Therefore **v1 is an open-weights play, in-VPC, by construction.** This is
+frontier API. Therefore **v1 is open-weights, in-VPC, by construction.** This is
 not a limitation to apologise for — it *is* the sovereignty story.
 
 ### Adversaries and the matched defense
@@ -81,29 +82,29 @@ not a limitation to apologise for — it *is* the sovereignty story.
 | Insider over-spend of privacy budget | **n-of-m multi-party authorization** on high-ε jobs | Same primitive x402 uses for high-value payments |
 
 Anything else on the menu (SMPC, FL, exotic crypto) would be cost without a matching
-adversary in this wedge.
+adversary in this scope.
 
 ---
 
 ## 3. Positioning
 
-**Lead with compliance evidence, not algorithms.** Regulated buyers purchase *evidence*,
-not privacy math.
+**Lead with compliance evidence, not algorithms.** Regulated organisations need
+*evidence* they can put in front of a validator, not privacy math.
 
-- **Economic buyer:** Chief Risk Officer / Head of Model Risk + Data Protection Officer.
-  CISO and Head of AI/Data Science are influencers, not signatories.
-- **Wedge into the org:** plug into the **Model Risk Management** discipline FS already
-  runs (ECB internal-models culture; the SR 11-7 mindset). We do not ask the bank to
-  adopt a new process — we feed privacy evidence into the validation pipeline they
-  already run and currently cannot populate.
+- **Who uses the evidence:** the Chief Risk Officer / Head of Model Risk and the Data
+  Protection Officer sign off on it; the CISO and the Head of AI/Data Science produce
+  and consume it.
+- **Where it fits:** the **Model Risk Management** discipline FS already runs (ECB
+  internal-models culture; the SR 11-7 mindset). It needs no new process: it feeds
+  privacy evidence into the validation pipeline the bank already runs and currently
+  cannot populate.
 - **CRO-native framing:** express the org's **ε privacy budget as a board-set risk
   appetite limit**, spent down through signed, countersigned ledger entries. A CRO
   understands this instantly.
 - **Ownable narrative — the LLM right-to-erasure problem (GDPR Art. 17):** you cannot
   surgically unlearn one customer from a fine-tuned model. DP materially weakens
   membership-inference, supporting the argument that the model does not meaningfully
-  "contain" any individual; the ledger documents lineage and retraining cadence. No
-  compliance vendor sells this cleanly today.
+  "contain" any individual; the ledger documents lineage and retraining cadence.
 
 ---
 
@@ -156,8 +157,8 @@ The HMAC-chained, append-only JSON-L audit log from the family, **extended with
 | **ε-budget accountant** | ✅ | |
 | **AI Act / MRM dossier exporter** | ✅ | |
 
-The net new surface is three components. Everything else is shared substrate — the
-perfectionist coherence play, and a real moat (suite-wide network effect).
+The net new surface is three components. Everything else is shared substrate, so the
+suite stays coherent and each member's evidence is usable by the others.
 
 ---
 
@@ -210,8 +211,8 @@ secondary feeds.
 2. *The joint enhancement (proposed):* extend ikigov's affirmation model from a boolean to
    **affirmed-by-evidence** — an item carries an optional ledger ref + content hash. The
    report then distinguishes "ticked" from "cryptographically proven," and an auditor can
-   verify the hash against the ledger. This upgrade makes *both* tools stronger and is the
-   moat of the suite. **Specified in ikigov's `PRESIDIO-REQ.md` as v0.13.0** ("External
+   verify the hash against the ledger. This upgrade makes *both* tools stronger and is what
+   ties the suite together. **Specified in ikigov's `PRESIDIO-REQ.md` as v0.13.0** ("External
    Evidence-Backed Affirmation"), building on ikigov v0.9.0 (signed evidence-pack manifest);
    the `EvidenceRef` schema there is the cross-repo contract `hardened-ai` exports against
    from day one.
@@ -243,10 +244,10 @@ input validation + output sanitisation; and the family SDLC (`presidio-hardened-
 
 | Phase | Milestone | New build | Outcome |
 |---|---|---|---|
-| **P1 — Evidence layer** | On-prem **ingest + privacy ledger** wrapped around a fine-tuning project the bank is *already* running. No DP yet. | dossier exporter (v0) | Lands the first FS logo at lowest research risk; AI Act / MRM value immediately |
-| **P2 — The moat** | **DP-SGD harness + ε-budget accountant**, n-of-m gate on high-ε jobs, full signed dossier | DP harness, ε accountant | Provable leakage bound — the differentiator |
-| **P3 — Federated** | Cross-border / cross-silo FL for banking groups (EU + non-EU entities that cannot centralise) | FL coordinator | Expands ACV within the same account |
-| **P4 — Consortium (pull-only)** | Multi-party **AML / fraud** models several banks train without sharing customer data (SMPC + FL) | SMPC | The platform prize FS will pull you toward |
+| **P1 — Evidence layer** | On-prem **ingest + privacy ledger** wrapped around a fine-tuning project the bank is *already* running. No DP yet. | dossier exporter (v0) | First FS deployment at the lowest research risk; AI Act / MRM value immediately |
+| **P2 — Provable privacy** | **DP-SGD harness + ε-budget accountant**, n-of-m gate on high-ε jobs, full signed dossier | DP harness, ε accountant | Provable leakage bound |
+| **P3 — Federated** | Cross-border / cross-silo FL for banking groups (EU + non-EU entities that cannot centralise) | FL coordinator | Extends the same deployment across a group's entities |
+| **P4 — Consortium (pull-only)** | Multi-party **AML / fraud** models several banks train without sharing customer data (SMPC + FL) | SMPC | Cross-institution models without pooling data |
 
 Integrations (ikigov dossier feed; x402 data-acquisition rail) slot in from P2–P3.
 
@@ -257,13 +258,13 @@ Integrations (ikigov dossier feed; x402 data-acquisition rail) slot in from P2�
 **Primary (v1):** EU financial services — banks and large FS groups with mature MRM
 functions, fine-tuning open-weight LLMs on customer/transaction data in-VPC.
 
-- **Buyer:** CRO / Head of Model Risk + DPO. **Influencers:** CISO, Head of AI/Data
-  Science.
+- **Sign-off:** CRO / Head of Model Risk + DPO. **Producers of the evidence:** CISO,
+  Head of AI/Data Science.
 - **Trigger:** an EU AI Act high-risk obligation or a supervisory model-validation
   requirement they cannot currently evidence for privacy.
 
-**Adjacent expansion (later):** insurance (actuarial/underwriting, similar audit culture,
-less vendor-crowded); public sector / sovereign (the ikigov + sovereignty angle,
+**Adjacent domains (later):** insurance (actuarial/underwriting, similar audit culture);
+public sector / sovereign (the ikigov + sovereignty angle,
 reference-generating). Healthcare/life-sciences pulls FL forward sooner but is more
 sensitive to DP accuracy loss — revisit after P2.
 
@@ -273,27 +274,26 @@ sensitive to DP accuracy loss — revisit after P2.
 
 **Risks**
 
-- **DP accuracy loss** is the adoption killer → mitigated by public-base/private-delta
+- **DP accuracy loss** is the main adoption risk → mitigated by public-base/private-delta
   fine-tuning; must be benchmarked early on a representative FS task.
 - **Ledger as a breach surface** if PII ever leaks into it → enforce commitments-only,
   reuse the family's vetted HMAC-chain.
-- **Open-weights ceiling** → some buyers will want frontier-model quality; be explicit
+- **Open-weights ceiling** → some users will want frontier-model quality; be explicit
   that the privacy guarantee requires in-VPC gradient access, which frontier APIs do not
   permit. Frame as a deliberate trade, not a gap.
-- **Scope creep into inference security** → keep it firmly out of this wedge.
+- **Scope creep into inference security** → keep it firmly out of scope.
 
 **Open questions**
 
 1. *(Resolved.)* ikigov data model is known and the enhancement is now specified as
-   **ikigov v0.13.0** in its `PRESIDIO-REQ.md`. Open sub-decision left to the author: pull
-   v0.13.0 forward to right after v0.9.0, or keep it after the planned v0.10–v0.12.
-2. Which open base model(s) to support first, and at what parameter scale, for the FS
-   design partner?
+   **ikigov v0.13.0** in its `PRESIDIO-REQ.md`.
+2. Which open base model(s) to support first, and at what parameter scale, for a first FS
+   deployment?
 3. DP accounting method (Rényi DP / PRV) and the org-budget ε/δ defaults to propose to a
    CRO.
 4. Do we reuse `screen.presidio-group.eu` for on-prem deployments, or ship a fully
-   air-gapped screening bundle? (Sovereign FS buyers will likely forbid the remote call.)
-5. Design-partner identification and the P1 "evidence layer" pilot scope.
+   air-gapped screening bundle? (Sovereign FS deployments will likely forbid the remote call.)
+5. The scope of a first P1 "evidence layer" pilot.
 6. Confirm the exact `hardened-ai → ikigov` item evidence map (the table in §5) with the
    IKI-Gov book author before hard-coding it — D-series and O5 are confident; T4/D2/I4 are
    "partial credit" and should be labelled as such in the export.
