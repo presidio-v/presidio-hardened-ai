@@ -77,6 +77,41 @@ class LedgerEntry:
         return record
 
 
+_ENTRY_FIELDS = frozenset(
+    {"seq", "timestamp", "event", "payload", "prev_hash", "entry_hash", "canon"}
+)
+
+
+def _parse_entry(line: str, lineno: int) -> LedgerEntry:
+    """One JSON-L line as a :class:`LedgerEntry`, with every field type checked."""
+    import json
+
+    try:
+        raw = json.loads(line)
+    except ValueError as exc:  # JSONDecodeError, and int-size limits
+        raise LedgerError(f"line {lineno}: not valid JSON") from exc
+    if not isinstance(raw, dict):
+        raise LedgerError(f"line {lineno}: entry must be a JSON object")
+    unknown = set(raw) - _ENTRY_FIELDS
+    missing = (_ENTRY_FIELDS - {"canon"}) - set(raw)
+    if unknown or missing:
+        raise LedgerError(
+            f"line {lineno}: bad entry fields "
+            f"(missing {sorted(missing)}, unknown {sorted(unknown)})"
+        )
+    seq, canon = raw["seq"], raw.get("canon")
+    if not isinstance(seq, int) or isinstance(seq, bool):
+        raise LedgerError(f"line {lineno}: seq must be an integer")
+    if canon is not None and (not isinstance(canon, int) or isinstance(canon, bool)):
+        raise LedgerError(f"line {lineno}: unsupported canon tag {canon!r} (must be an integer)")
+    if not isinstance(raw["payload"], dict):
+        raise LedgerError(f"line {lineno}: payload must be a JSON object")
+    for name in ("timestamp", "event", "prev_hash", "entry_hash"):
+        if not isinstance(raw[name], str):
+            raise LedgerError(f"line {lineno}: {name} must be a string")
+    return LedgerEntry(**raw)
+
+
 def _resolve_key(key: bytes | str | None) -> bytes:
     if key is None:
         env = os.environ.get(_KEY_ENV)
@@ -117,15 +152,15 @@ class Ledger:
         return last.seq + 1, last.entry_hash
 
     def _iter_entries(self) -> Iterator[LedgerEntry]:
-        import json
-
-        with self.path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                raw = json.loads(line)
-                yield LedgerEntry(**raw)
+        """Parse the JSON-L file; any malformed line raises :class:`LedgerError`."""
+        try:
+            with self.path.open("r", encoding="utf-8") as fh:
+                for lineno, line in enumerate(fh, start=1):
+                    line = line.strip()
+                    if line:
+                        yield _parse_entry(line, lineno)
+        except UnicodeDecodeError as exc:
+            raise LedgerError(f"ledger {self.path} is not valid UTF-8") from exc
 
     def append(self, event: str, payload: dict[str, Any] | None = None) -> LedgerEntry:
         """Append an entry and return it. ``payload`` must be commitments-only."""

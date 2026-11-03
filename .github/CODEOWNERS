@@ -1,0 +1,9 @@
+# Code owners for presidio-hardened-ai
+#
+# Every change to this repository requires review from a code owner other than
+# the author. Branch protection that enforces this on main (required review +
+# code-owner review) is being set up. Listing two owners keeps the two-person
+# gate robust — whoever is not the author of a given pull request provides the
+# required review.
+
+*       @vstantch @ceoofcyber

@@ -10,6 +10,22 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
+### Security
+- **Malformed ledger lines now fail as `LedgerError`.** Every field of a ledger entry is
+  type-checked on read (object shape, unknown or missing fields, integer `seq` and `canon`,
+  object `payload`, string hashes and timestamp), and invalid UTF-8 is reported the same
+  way. Before, some malformed lines raised `TypeError` or `UnicodeDecodeError`, and
+  `pai verify` crashed instead of reporting a corrupt ledger.
+
+### Added
+- Atheris fuzz harnesses for the ledger parser and the federated wire decoder
+  (`fuzz/`, `fuzz` extra), run in CI on Linux.
+- OpenSSF Scorecard workflow; governance, contribution, versioning, architecture and
+  assurance documents; code owners; `allowed_signers` for release-tag verification.
+
+### Changed
+- CI workflows pin third-party actions to commit SHAs.
+
 ## [0.32.1] — 2026-11-03
 
 ### Security

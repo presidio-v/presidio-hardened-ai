@@ -21,11 +21,18 @@ test suite on 3.12 and 3.13.
 ## Reporting a Vulnerability
 
 Please report security vulnerabilities by opening a private GitHub Security Advisory
-(via the "Security" tab → "Report a vulnerability") rather than a public issue.
+(via the "Security" tab → "Report a vulnerability", or
+[report a vulnerability](https://github.com/presidio-v/presidio-hardened-ai/security/advisories/new))
+rather than a public issue. You can also email security@presidio-group.eu.
 
 Include: a description, steps to reproduce, potential impact, and a suggested fix if
 any. You will receive an acknowledgement within 5 business days; we aim to release a
 patch within 30 days of a confirmed vulnerability.
+
+Reporters are credited in the advisory and in the `CHANGELOG.md` entry for the fix unless
+they ask not to be. A flaw in a signed payload schema or in the evidence wire format can
+affect the verifiers that consume this package's evidence (presidio-hardened-ikigov-assess,
+presidio-evidence), so we coordinate the fix with them before disclosure.
 
 ## Security Design
 
@@ -327,6 +334,62 @@ validation/canary metrics can still pass; v1 *contains and attributes* rather th
 escalation path is a per-party cosine-band ZK proof (ADR-0007 B) and, for a malicious majority of
 contributions, robust aggregation under MPC (ADR-0007 A). The consortium owns the clean validation
 set and canary suite (the suite ships no data).
+
+## Assurance case
+
+The consolidated assurance case (threat model, trust boundaries, secure-design argument,
+how common implementation weaknesses are countered, and the known limits above) is in
+[ASSURANCE.md](ASSURANCE.md); components, data flow and trust boundaries are in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Test keys in this repository
+
+`tests/vectors/signing/` holds presidio-evidence's golden vectors, copied verbatim (see
+`tests/vectors/PROVENANCE.txt`). They contain well-known test keys on purpose: the Ed25519
+private key `01`×32 and the HMAC key `shared-key`. The test suite and the fuzz harnesses
+also use fixed literal keys. These are published fixtures that make the vectors
+reproducible across repositories, not secrets. Never use them outside tests.
+
+## Verifying releases and obtaining public signing keys
+
+Releases are cut from an SSH-signed `v*` tag by `.github/workflows/publish.yml`, which
+checks that the tag matches the package version, builds with a hash-pinned toolchain and
+publishes to PyPI through Trusted Publishing (OIDC, no stored API token). The publish job
+runs in the `release` environment, which requires a maintainer's approval, so a pushed tag
+alone cannot publish. There is no key to fetch by hand for artefact verification.
+
+- **PyPI files** carry PEP 740 attestations from that workflow; PyPI shows them on each
+  file's page.
+- **GitHub release assets** (wheel, sdist, CycloneDX SBOM `sbom.cdx.json`) carry
+  build-provenance attestations:
+
+  ```bash
+  gh attestation verify presidio_hardened_ai-<version>-py3-none-any.whl --repo presidio-v/presidio-hardened-ai
+  gh attestation verify sbom.cdx.json --repo presidio-v/presidio-hardened-ai
+  ```
+
+  Each asset's provenance bundle is also attached to the release as `<asset>.intoto.jsonl`,
+  so it can be verified without querying GitHub's attestation store:
+
+  ```bash
+  gh attestation verify sbom.cdx.json --bundle sbom.cdx.json.intoto.jsonl --repo presidio-v/presidio-hardened-ai
+  ```
+
+  The SBOM describes the wheel and its runtime dependencies as installed in a clean
+  environment, not the build tooling.
+
+- **Release tags** are SSH-signed with the organisation's release key, registered as a
+  signing key on the maintainer's GitHub account, so each tag shows as **Verified**:
+
+  ```bash
+  gh api repos/presidio-v/presidio-hardened-ai/git/tags/<sha> --jq .verification.verified
+  ```
+
+  The public key is in [`allowed_signers`](allowed_signers). To verify a tag locally:
+
+  ```bash
+  git -c gpg.ssh.allowedSignersFile=allowed_signers verify-tag <tag>
+  ```
 
 ## Software Development Lifecycle
 

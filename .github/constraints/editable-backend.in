@@ -1,0 +1,5 @@
+# Build backend for the editable install of this package (pip install
+# --no-build-isolation -e .), so the backend is hash-pinned too. Keep in step
+# with [build-system] requires in pyproject.toml.
+hatchling>=1.31,<2
+editables>=0.5

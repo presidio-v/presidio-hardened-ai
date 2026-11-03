@@ -151,3 +151,54 @@ def test_file_permissions_0600(tmp_path):
     Ledger(path, key=KEY).append("a", {"i": 0})
     mode = stat.S_IMODE(path.stat().st_mode)
     assert mode == 0o600
+
+
+# --- malformed ledger files fail with LedgerError, not a raw exception -------
+
+_GOOD = {
+    "seq": 0,
+    "timestamp": "t",
+    "event": "e",
+    "payload": {},
+    "prev_hash": GENESIS_HASH,
+    "entry_hash": "00",
+    "canon": 1,
+}
+
+
+def _line(**changes):
+    rec = {**_GOOD, **changes}
+    return json.dumps({k: v for k, v in rec.items() if v is not _DROP}).encode()
+
+
+_DROP = object()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"not json",
+        b"[1, 2]",
+        b'"a string"',
+        b"\xff\xfe",
+        b'{"seq": 0}',
+        _line(extra="x"),
+        _line(timestamp=_DROP),
+        _line(seq="0"),
+        _line(seq=True),
+        _line(canon="1"),
+        _line(canon=False),
+        _line(payload=[]),
+        _line(event=None),
+        _line(entry_hash=5),
+        _line(prev_hash=[]),
+    ],
+    ids=lambda d: d[:24].decode("utf-8", "replace"),
+)
+def test_malformed_entry_raises_ledger_error(tmp_path, data):
+    path = tmp_path / "bad.jsonl"
+    path.write_bytes(data + b"\n")
+    with pytest.raises(LedgerError):
+        verify_chain(path, key=KEY)
+    with pytest.raises(LedgerError):
+        Ledger(path, key=KEY)

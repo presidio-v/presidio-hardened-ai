@@ -1,0 +1,21 @@
+# hardening.toml — presidio-hardened-repo manifest for presidio-hardened-ai.
+# Render input and re-run record for the OpenSSF hardening templates.
+# Python package with optional MPC, torch and Rust/ZK lanes; those CI lanes
+# (ci-mpc, ci-torch, ci-zk) are maintained by hand.
+
+[project]
+name = "presidio-hardened-ai"
+org = "presidio-v"
+package = "presidio_ai"
+description = "Training-time privacy for AI: DP-SGD accounting, federated learning with verifiable secure aggregation and zero-knowledge norm proofs, and a tamper-evident lineage ledger that emits signed governance evidence."
+language = "python"
+tier = "silver"
+
+[people]
+maintainer = "vstantch"
+reviewer = "ceoofcyber"
+security_contact = "security@presidio-group.eu"
+
+[legal]
+copyright_holder = "PRESIDIO Group"
+license = "MIT"

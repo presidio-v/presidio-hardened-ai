@@ -44,6 +44,8 @@ mpc = ["cryptography>=42", "uvicorn>=0.30", "starlette>=0.37"]
 # It is a drop-in accelerator: absent it, get_backend() falls back to the pure-Python MODP
 # proofs, so this extra stays installable (no-op) and `pip install ...[zk]` always works.
 zk = []
+# [fuzz] runs the Atheris harnesses in fuzz/ (Linux only: Atheris has no macOS wheel).
+fuzz = ["atheris>=2.3", "presidio-evidence[crypto]>=0.5.1,<0.6"]
 # [gate] verifies ikigov-assess gate certificates for --gate-certificate (issue #77):
 # its verify_certificate checks schema, issuer signature, expiry, embedded refs and the
 # recomputed decision. Floor = the release the family gate-certificate vector was
@@ -83,6 +85,7 @@ ignore = ["B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+"fuzz/*" = ["S101", "N802"]  # asserts are the fuzz oracle; TestOneInput is Atheris's name
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
