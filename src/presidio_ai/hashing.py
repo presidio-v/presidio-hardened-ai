@@ -91,5 +91,11 @@ def hmac_hex(key: bytes, payload: Any, *, canon: int = CANON_STRICT) -> str:
 
 
 def constant_time_equals(a: str, b: str) -> bool:
-    """Timing-safe comparison of two hex digests."""
-    return hmac.compare_digest(a, b)
+    """Timing-safe comparison of two hex digests.
+
+    Both sides are compared as UTF-8 bytes, so an attacker-supplied value with non-ASCII
+    characters (or a lone surrogate from JSON) compares unequal instead of raising.
+    """
+    return hmac.compare_digest(
+        a.encode("utf-8", "surrogatepass"), b.encode("utf-8", "surrogatepass")
+    )

@@ -16,6 +16,10 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
   object `payload`, string hashes and timestamp), and invalid UTF-8 is reported the same
   way. Before, some malformed lines raised `TypeError` or `UnicodeDecodeError`, and
   `pai verify` crashed instead of reporting a corrupt ledger.
+- **Digest and signature comparisons no longer raise on non-ASCII input.**
+  `constant_time_equals` compares UTF-8 bytes, so a ledger `entry_hash`, an anchor, an
+  evidence signature or an approver countersignature containing non-ASCII characters is
+  reported as a mismatch instead of raising `TypeError`. Found by the new ledger fuzzer.
 
 ### Added
 - Atheris fuzz harnesses for the ledger parser and the federated wire decoder

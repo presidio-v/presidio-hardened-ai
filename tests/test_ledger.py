@@ -202,3 +202,21 @@ def test_malformed_entry_raises_ledger_error(tmp_path, data):
         verify_chain(path, key=KEY)
     with pytest.raises(LedgerError):
         Ledger(path, key=KEY)
+
+
+@pytest.mark.parametrize("bad", ["é" * 64, "\ud800" * 64])
+def test_non_ascii_entry_hash_is_a_mac_mismatch(tmp_path, bad):
+    path = tmp_path / "ledger.jsonl"
+    Ledger(path, key=KEY).append("data-ingested", {"n_records": 1})
+    record = json.loads(path.read_text())
+    record["entry_hash"] = bad
+    path.write_text(json.dumps(record) + "\n")
+    with pytest.raises(LedgerError, match="MAC mismatch"):
+        verify_chain(path, key=KEY)
+
+
+def test_non_ascii_anchor_hash_does_not_match(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    Ledger(path, key=KEY).append("data-ingested", {"n_records": 1})
+    with pytest.raises(LedgerError, match="anchor"):
+        verify_chain(path, key=KEY, anchor=(0, "é" * 64))
