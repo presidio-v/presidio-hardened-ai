@@ -12,3 +12,7 @@ updates:
       github-actions:
         patterns:
           - "*"
+  - package-ecosystem: "cargo"
+    directory: "/rust"
+    schedule:
+      interval: "weekly"

@@ -20,6 +20,10 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
   `constant_time_equals` compares UTF-8 bytes, so a ledger `entry_hash`, an anchor, an
   evidence signature or an approver countersignature containing non-ASCII characters is
   reported as a mismatch instead of raising `TypeError`. Found by the new ledger fuzzer.
+- **`fl.transport.serve()` refuses plaintext HTTP beyond loopback.** It takes
+  `ssl_certfile` / `ssl_keyfile` and serves HTTPS with Python's TLS defaults (TLS 1.2
+  minimum); without them it binds only a loopback address, so a plaintext coordinator cannot
+  be exposed by passing `host="0.0.0.0"`.
 
 ### Added
 - Atheris fuzz harnesses for the ledger parser and the federated wire decoder
@@ -29,6 +33,10 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ### Changed
 - CI workflows pin third-party actions to commit SHAs.
+- CI enforces an 85% statement-coverage floor; Dependabot also tracks the Rust crate.
+- The README and `SECURITY.md` no longer claim that the package HTML-escapes output: it
+  renders no HTML, and `sanitize.escape()` is offered to callers that do.
+- The README shows the OpenSSF Scorecard and Best Practices badges and a 12-month roadmap.
 
 ## [0.32.1] — 2026-11-03
 

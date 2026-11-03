@@ -93,8 +93,9 @@ unavailable. This is a property of the **organisation**, not of any one person:
   and `.github/workflows/publish.yml`: bump the version, date the `CHANGELOG.md`
   entry, merge the release pull request, push a signed tag (`git tag -s vX.Y.Z`),
   and a maintainer approves the `release` environment before the publish job runs.
-  The `release` environment has one required reviewer today. A second release
-  reviewer and the two-person code-owner review gate on `main` are being set up.
+  The `release` environment has two reviewers (`vstantch`, `ceoofcyber`) and
+  prevents self-review, so whoever starts a release cannot approve it; `main` requires
+  a second-person code-owner review.
   Any authorised PRESIDIO Group engineer can cut a release by following the
   process.
 - **Access is covered by an organisation policy.** PRESIDIO Group's access

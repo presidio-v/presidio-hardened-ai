@@ -87,5 +87,8 @@ ignore = ["B008"]
 "tests/*" = ["S101"]
 "fuzz/*" = ["S101", "N802"]  # asserts are the fuzz oracle; TestOneInput is Atheris's name
 
+[tool.coverage.report]
+fail_under = 85
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

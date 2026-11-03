@@ -55,7 +55,8 @@ presidio-evidence), so we coordinate the fix with them before disclosure.
   `redact` / `block` / `warn` actions. Detection favours precision; differential
   privacy is the planned mathematical backstop (P2) for residual recall.
 - **Input validation & output escaping** — identifiers and paths are length-bounded
-  and rejected on control/NUL bytes; free-text is HTML-escaped before any rendering.
+  and rejected on control/NUL bytes. The package renders no HTML; `sanitize.escape()` is
+  provided for callers that put free text into rendered output.
 - **Structural-only security log** — `~/.presidio-ai/security.log` records event name,
   counts, and mode flags only; never content or `ledger_ref` values. Logging is
   best-effort and never breaks the operation.
@@ -201,8 +202,8 @@ threshold — learns only the aggregate, never an individual party's update. Con
   Ed25519-signed with the sender's identity key, and `RoundCoordinator` (served by
   `serve()`) accepts one submission per party, aggregates exactly once and serves only that
   cached result, so no caller can obtain two aggregates over different survivor sets. The
-  session itself pins the survivor set at the first aggregation. TLS, bind address and rate
-  limiting are deployment configuration.
+  session itself pins the survivor set at the first aggregation. `serve()` takes `ssl_certfile` / `ssl_keyfile` and refuses to bind a non-loopback address
+  without them; rate limiting is deployment configuration.
 
 **Threat model (v1, ADR-0001).** Honest-but-curious coordinator + ≤`t` colluding parties.
 
