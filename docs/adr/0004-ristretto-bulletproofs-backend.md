@@ -22,6 +22,19 @@ ZK range proofs shipped there; same threat model, same `EvidenceRef@1` contract.
 > is active is handled generically by the backend seam, but a Ristretto-path consortium
 > integration test + the dimension **benchmark** (items 4, 6) await a CI run with the wheel.
 
+## Amendment (2026-11-03, v0.32.0)
+
+The native crate had never compiled: `bulletproofs 4.0` is built on `curve25519-dalek-ng`,
+while the crate used `curve25519-dalek 4`. Once it was built for the pre-publication
+security review, two defects showed: the same one-sided L∞ check as ADR-0003, which here
+admits far more because `n` is rounded up to 8/16/32/64 bits, and different padding on the
+prover (identity) and verifier (`bound·B`) sides, so honest proofs over a vector whose
+length is not a power of two failed. Since 0.32.0 the crate uses `bulletproofs 5.0` and
+`pyo3 0.29` (clearing two pyo3 advisories), proves `u + B` and `B − u` in one aggregated
+proof, pads both sides with the identity, binds the bound and length into the transcript,
+commits `Cargo.lock`, and runs in CI on pull requests that touch the proof code. The native
+L2 path also proves the per-coordinate bound (ADR-0005 amendment).
+
 ## Context
 
 ADR-0003 shipped a **correct** bounded-norm proof (v0.19.0–v0.20.0): a transparent Pedersen

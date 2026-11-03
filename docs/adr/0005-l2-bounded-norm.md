@@ -15,6 +15,17 @@ follow-up; uses the [ADR-0004](0004-ristretto-bulletproofs-backend.md) pluggable
 > L∞ gate remains as a cheaper option; the default-norm policy (item 6) is left to the
 > caller (pass `l2_bound` for the exact norm, `clip_bound` for L∞).
 
+## Amendment (2026-11-03, v0.32.0)
+
+The commit-squares construction, as built, did not bound the individual coordinates. Over
+`Z_q` a prover could commit a large `x₁` and a second coordinate `x₂ ≡ sqrt(−x₁² + s)
+(mod q)`, so that the squared norm `S ≡ s` passed both range proofs. Since 0.32.0 the L2
+proof also carries an L∞ proof at the same bound (implied by `‖x‖₂ ≤ B`, so honest provers
+always meet it) and requires `dim · B² < q`; then `S` is the integer sum of squares and
+`S ≤ B²` holds over the integers. The native backend does the same. `sensitivity_proven =
+true` is recorded only by this gate, and only supports the accountant when `l2_bound` is
+the clip norm the noise was calibrated to.
+
 ## Context
 
 ADR-0003 ships an **L∞** bounded-norm gate: each committed coordinate is proven in

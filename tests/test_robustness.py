@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import random
+
+import pytest
 
 from presidio_ai.dp.accountant import dpsgd_epsilon
 from presidio_ai.fl.commit import SchnorrGroup, hash_to_subgroup
@@ -104,4 +107,54 @@ def test_god_round_rejects_and_rolls_back_on_canary_fail(tmp_path):
     rejected = [e for e in entries if e.event == "consortium-round-rejected"]
     assert len(rejected) == 1 and rejected[0].payload["mode"] == "god"
     # no consortium-round (accepted) entry was written
+    assert not [e for e in entries if e.event == "consortium-round"]
+
+
+# --- non-finite scores and non-bool canaries (audit 2026-11-03) ---------------
+
+
+@pytest.mark.parametrize("score", [float("nan"), float("inf"), float("-inf"), True, "0.99", None])
+def test_evaluate_rejects_non_finite_or_non_numeric_score(score):
+    for pol, prev in (
+        (RobustnessPolicy(validate=lambda c: RobustnessMetrics(score, True), min_score=0.5), None),
+        (
+            RobustnessPolicy(
+                validate=lambda c: RobustnessMetrics(score, True), max_regression=0.01
+            ),
+            0.95,
+        ),
+        (RobustnessPolicy(validate=lambda c: RobustnessMetrics(score, True)), None),  # defaults
+    ):
+        verdict = evaluate([0.0], pol, previous_score=prev)
+        assert verdict.accepted is False
+        assert "finite" in verdict.reason
+
+
+@pytest.mark.parametrize("canary", ["no", 1, None, "False"])
+def test_evaluate_requires_canary_pass_to_be_true(canary):
+    pol = RobustnessPolicy(validate=lambda c: RobustnessMetrics(0.99, canary))
+    assert evaluate([0.0], pol).accepted is False
+
+
+def test_god_round_rolls_back_cleanly_on_nan_score(tmp_path):
+    parties = [f"b{i}" for i in range(5)]
+    pol = RobustnessPolicy(
+        validate=lambda c: RobustnessMetrics(score=math.nan, canary_pass=True), min_score=0.5
+    )
+    ledger = Ledger(tmp_path / "r.jsonl", key=KEY)
+    res = run_god_consortium_round(
+        round_id="rob-nan",
+        updates=_updates(parties, 3),
+        dp_results=_dp(parties),
+        threshold=3,
+        ledger=ledger,
+        group=G,
+        robustness=pol,
+        rng=_rng(3),
+    )
+    assert res.applied is False and res.per_silo_charge == {}
+    entries = verify_chain(ledger.path, key=KEY)
+    rejected = [e for e in entries if e.event == "consortium-round-rejected"]
+    assert len(rejected) == 1
+    assert rejected[0].payload["score"] is None and rejected[0].payload["score_non_finite"] is True
     assert not [e for e in entries if e.event == "consortium-round"]

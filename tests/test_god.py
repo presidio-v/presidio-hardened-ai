@@ -9,9 +9,9 @@ import pytest
 
 from presidio_ai.dp.accountant import dpsgd_epsilon
 from presidio_ai.dp.budget import EpsilonBudget
-from presidio_ai.fl.commit import SchnorrGroup, hash_to_subgroup
+from presidio_ai.fl.commit import SchnorrGroup, feldman_split, hash_to_subgroup
 from presidio_ai.fl.consortium import GODConsortiumResult, run_god_consortium_round
-from presidio_ai.fl.god import GODError, deal_input, god_aggregate
+from presidio_ai.fl.god import DealtInput, GODError, deal_input, god_aggregate
 from presidio_ai.ledger import Ledger, verify_chain
 
 _Q = 30236267232664312970399
@@ -74,6 +74,66 @@ def test_god_fails_closed_when_too_many_bad_holders():
     ov = {0: {x: (dealt["p0"].shares[0][x] + 3) % G.q for x in (1, 2, 3)}}
     with pytest.raises(GODError, match="cannot reconstruct"):
         god_aggregate(dealt, threshold=3, n_holders=5, group=G, holder_overrides=ov)
+
+
+# --- malformed dealers (audit 2026-11-03) ----------------------------------
+
+_HONEST = {"A": [10, 1], "B": [20, 2], "C": [30, 3], "D": [40, 4]}
+_HONEST_SUM = [100, 10]
+
+
+def _honest_dealt():
+    return _deal(list(_HONEST), _HONEST, 3, 5)
+
+
+def _high_degree(values):
+    """A dealer that shares with a degree-`threshold` polynomial (one coefficient too many)."""
+    shares, commits = [], []
+    for v in values:
+        sh = feldman_split(v % G.q, 4, 5, group=G, rng=_rng(77))
+        shares.append(sh.shares)
+        commits.append(sh.commitments)
+    return DealtInput(shares=shares, commitments=commits)
+
+
+def _malformed_cases():
+    good = deal_input([5, 5], threshold=3, n_holders=5, group=G, rng=_rng(9))
+    return {
+        "wrong-dimension": deal_input([5], threshold=3, n_holders=5, group=G, rng=_rng(9)),
+        "length-mismatch": DealtInput(shares=good.shares[:1], commitments=good.commitments),
+        "high-degree": _high_degree([5, 5]),
+        "missing-holder": DealtInput(
+            shares=[{k: v for k, v in sh.items() if k != 5} for sh in good.shares],
+            commitments=good.commitments,
+        ),
+        "non-group-commitment": DealtInput(
+            shares=good.shares, commitments=[[0, *c[1:]] for c in good.commitments]
+        ),
+        "not-a-dealt-input": object(),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_malformed_cases()))
+@pytest.mark.parametrize("first", [True, False], ids=["first", "last"])
+def test_god_excludes_malformed_dealer_and_still_delivers(case, first):
+    bad = _malformed_cases()[case]
+    honest = _honest_dealt()
+    dealt = {"E": bad, **honest} if first else {**honest, "E": bad}
+    res = god_aggregate(dealt, threshold=3, n_holders=5, group=G)
+    assert res.excluded == ["E"]
+    assert res.aggregate_field == _HONEST_SUM
+    explicit = god_aggregate(dealt, threshold=3, n_holders=5, dim=2, group=G)
+    assert explicit.aggregate_field == _HONEST_SUM
+
+
+def test_god_requires_majority_dimension_when_dim_omitted():
+    dealt = {
+        "A": deal_input([1], threshold=2, n_holders=3, group=G, rng=_rng(1)),
+        "B": deal_input([1, 2], threshold=2, n_holders=3, group=G, rng=_rng(2)),
+    }
+    with pytest.raises(GODError, match="majority"):
+        god_aggregate(dealt, threshold=2, n_holders=3, group=G)
+    assert god_aggregate(dealt, threshold=2, n_holders=3, dim=2, group=G).included == ["B"]
 
 
 # --- full GOD round -------------------------------------------------------

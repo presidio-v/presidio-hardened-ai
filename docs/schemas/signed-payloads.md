@@ -32,6 +32,7 @@ that dictionary; `tests/test_numeric.py` fails if the two drift apart.
 | `score` | decimal string | 12 | Robustness validation score (accuracy-like), recorded on rejected rounds. |
 | `clip_bound` | decimal string | 12 | L-inf clip bound proven for a secure round (ADR-0003); `null` when not proven. |
 | `l2_bound` | decimal string | 12 | L2 bound proven for a secure round (ADR-0005 of this repo); `null` when not proven. |
+| `norm_bound` | decimal string | 12 | The bound of the gate named by `proven_norm` in `consortium-round@1` evidence (since 0.32.0); absent when no gate ran. |
 
 Integers (`steps`, `n_parties`, `n_survivors`, `threshold`, counts) stay JSON
 integers. No field uses an "unbounded" sentinel today.
@@ -61,7 +62,13 @@ Hashed by `build_consortium_evidence` over `evidence.consortium_commitment`.
 | `aggregate_sha256` | lowercase hex, sha256 over `{"agg": [field-domain integers]}` |
 | `max_epsilon`, `delta` | decimal strings |
 | `n_parties`, `n_survivors` | integers |
+| `proven_norm` | optional (since 0.32.0): `"linf"` or `"l2"`, present only when a bounded-norm gate ran |
+| `norm_bound` | optional (since 0.32.0): decimal string, the proven bound; present exactly when `proven_norm` is |
 | `parents` | optional, ADR-0002 |
+
+Only `proven_norm = "l2"` supports a DP-sensitivity claim, and only when `norm_bound`
+equals the clip norm the noise was calibrated to. An L∞ bound `B` allows an L2 norm of
+up to `B·sqrt(dim)`. A round without a gate produces the same bytes as before 0.32.0.
 
 The round's ledger entry repeats `max_epsilon` and `delta` byte-for-byte and adds
 `per_silo_epsilon` (decimal strings at `epsilon` precision).

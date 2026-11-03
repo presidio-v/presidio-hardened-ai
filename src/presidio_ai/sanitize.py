@@ -7,6 +7,7 @@ free-text identifiers are HTML-escaped before they appear in any rendered output
 from __future__ import annotations
 
 import html
+import re
 
 MAX_ID_LEN = 256
 MAX_PATH_LEN = 4096
@@ -26,6 +27,21 @@ def validate_identifier(value: str, *, what: str = "identifier") -> str:
         raise ValidationError(f"{what} exceeds {MAX_ID_LEN} characters")
     if any(ord(ch) < 32 for ch in value):
         raise ValidationError(f"{what} contains control characters")
+    return value
+
+
+_SILO_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def validate_silo_id(value: str, *, what: str = "silo id") -> str:
+    """Validate a silo/party id that names a file: one plain filename component.
+
+    Allows ``[A-Za-z0-9][A-Za-z0-9._-]{0,127}``, so no path separator, no leading dot (no
+    ``.``/``..``) and no control bytes. A silo id from a round file becomes a per-silo
+    ledger filename, so anything else could leave the ledger directory.
+    """
+    if not isinstance(value, str) or _SILO_ID_RE.fullmatch(value) is None:
+        raise ValidationError(f"{what} {value!r} must match [A-Za-z0-9][A-Za-z0-9._-]{{0,127}}")
     return value
 
 

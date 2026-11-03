@@ -933,3 +933,32 @@ arch-translucency verifies certificates the same way, so the edge can now be che
   over untagged requests fail closed.
 - **R-E3** Python 3.11+.
 
+**Pre-publication security fixes.** A tool-assisted security review (two passes) and the
+review of its findings produced the following requirements; each has regression tests that
+fail on 0.31 code.
+
+- **R-S1** L∞ bounded-norm verifiers (MODP and native) accept only `u ∈ [−B, B]`: both
+  `u + B` and `B − u` are range-proven, under distinct transcript tags.
+- **R-S2** L2 bounded-norm proofs include a per-coordinate bound at the same `B` and
+  require `dim · B² < q`; a modular-wraparound forgery is rejected.
+- **R-S3** `sensitivity_proven` is true only after the L2 gate; gated rounds commit
+  `proven_norm` and `norm_bound` in the signed `consortium-round@1` content.
+- **R-S4** Survivor-set signatures are Ed25519 under party identity keys, bound to
+  `(round_id, attempt, sorted alive)`, verified with public keys, counted only for signers in
+  the alive set and session, and stored on the ledger. A party signer refuses a second set
+  for one attempt.
+- **R-S5** `god_aggregate` excludes, without raising, any dealer whose input is malformed for
+  the round, and the honest sum is still delivered.
+- **R-S6** A secure-aggregation session aggregates one survivor set (shrinkable only by
+  `exclude()`) and masks one vector per party. The transport authenticates every message
+  by signature, accepts one submission per party and serves one cached aggregate.
+- **R-S7** The ledger detects truncation and deletion against an anchor; the budget
+  anchors to its live ledger; `pai verify` exits 1 on a missing ledger and accepts
+  `--expect-entry` and `--min-entries`.
+- **R-S8** `pai consortium-round` rejects silo ids that are not plain filenames and keeps
+  every per-silo ledger inside `--budget-dir`.
+- **R-S9** The robustness gate rejects non-finite or non-numeric scores and any
+  `canary_pass` other than `True`.
+- **R-S10** The native `[zk]` crate builds (`bulletproofs 5.0`, `pyo3 0.29`, locked), pads
+  prover and verifier identically, and is tested in CI on proof-code pull requests.
+

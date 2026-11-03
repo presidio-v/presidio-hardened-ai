@@ -259,3 +259,42 @@ def test_feldman_commitments_requires_verifiable_mode():
     _, sess = _session()  # plain (no group) session
     with pytest.raises(CommitmentError):
         sess.feldman_commitments()
+
+
+# --- one-shot session state (audit 2026-11-03) --------------------------------
+
+
+def _three_party_session():
+    sess = SecureAggregationSession(["A", "B", "C"], dim=2, threshold=2, rng=random.Random(1))  # noqa: S311
+    inputs = {"A": [1.0, 2.0], "B": [3.0, 4.0], "C": [0.25, -0.5]}
+    masked = {p: sess.mask(p, v) for p, v in inputs.items()}
+    return sess, masked
+
+
+def test_second_aggregation_over_a_larger_set_is_refused():
+    """Differencing agg{A,B} and agg{A,B,C} would reveal C's update."""
+    sess, masked = _three_party_session()
+    sess.aggregate_field({p: masked[p] for p in ("A", "B")})
+    with pytest.raises(ValueError, match="pinned"):
+        sess.aggregate_field(masked)
+
+
+def test_same_set_may_be_aggregated_again_and_exclude_shrinks_it():
+    sess, masked = _three_party_session()
+    first = sess.aggregate_field(masked)
+    assert sess.aggregate_field(masked) == first
+    assert sess.pinned_survivors == frozenset({"A", "B", "C"})
+    with pytest.raises(ValueError, match="pinned"):
+        sess.aggregate_field({p: masked[p] for p in ("A", "B")})
+    sess.exclude("C")
+    sess.aggregate_field({p: masked[p] for p in ("A", "B")})
+    with pytest.raises(KeyError):
+        sess.exclude("Z")
+
+
+def test_masks_are_used_for_one_vector_only():
+    sess = SecureAggregationSession(["A", "B"], dim=2, threshold=2, rng=random.Random(2))  # noqa: S311
+    sess.mask("A", [1.0, 2.0])
+    sess.mask("A", [1.0, 2.0])  # re-masking the same vector is harmless
+    with pytest.raises(ValueError, match="already masked a different vector"):
+        sess.mask("A", [1.0, 3.0])

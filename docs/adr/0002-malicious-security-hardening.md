@@ -21,6 +21,27 @@ output delivery (liveness under an honest majority).
 > come: wiring VSS into the session (4), the homomorphic aggregate check + signed
 > survivor-set round in the consortium (5, 6), and the `[mpc]`/benchmark work (7).
 
+## Amendment (2026-11-03, v0.32.0)
+
+A tool-assisted pre-publication security review found that Decision 1 did not bind the
+adversary it names: survivor-set "signatures" were HMACs under per-party keys that the
+verifier, i.e. the coordinator, had to hold, so it could mint them, and they were not
+stored on the ledger. Since 0.32.0:
+
+- Parties sign with their Ed25519 identity keys (the keys that already sign their X25519
+  keys); `verify_survivor_set` takes public keys only and counts only signers that are in
+  the alive set and the session.
+- The statement is `{round_id, attempt, sorted alive}`; the ledger entry stores the
+  signatures, the attempt and the threshold, and a second entry for the same round attempt
+  is refused (a self-consistency check, since the coordinator holds the ledger).
+- `SurvivorSetSigner` signs at most one set per round attempt. This, under an honest
+  majority, is what stops equivocation; the retry helper takes one signer per party.
+- `SecureAggregationSession` pins the survivor set at its first aggregation and only
+  `exclude()` may shrink it, so no caller can unmask two different sets.
+
+Equivocation is provable only by someone who obtains both signed sets; the coordinator-held
+ledger does not guarantee that. API break: `survivor_keys` became `survivor_trust`.
+
 ## Context
 
 ADR-0001 chose secure aggregation by additive masking and bounded its threat model to an

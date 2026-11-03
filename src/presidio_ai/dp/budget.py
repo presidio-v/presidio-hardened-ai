@@ -20,7 +20,7 @@ which the 1e-12 admission tolerance already absorbs for any realistic charge cou
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -84,7 +84,23 @@ class ChargeResult:
 
 
 class EpsilonBudget:
-    def __init__(self, total_epsilon: float, delta: float, ledger: Ledger) -> None:
+    """An epsilon budget whose spend is the sum of verified charge entries on a ledger.
+
+    The chain is checked against the ``Ledger`` object's own tail, so dropping trailing
+    entries or deleting the file while this process holds the ledger raises instead of
+    refunding spend. ``anchor`` adds an external anchor for a fresh process (for example
+    the O5 head of the last signed export, or a value from a write-once store): a callable
+    returning ``(seq, entry_hash)`` or ``None``.
+    """
+
+    def __init__(
+        self,
+        total_epsilon: float,
+        delta: float,
+        ledger: Ledger,
+        *,
+        anchor: Callable[[], tuple[int, str] | None] | None = None,
+    ) -> None:
         if total_epsilon <= 0:
             raise ValueError("total_epsilon must be > 0")
         if not 0.0 < delta < 1.0:
@@ -92,10 +108,20 @@ class EpsilonBudget:
         self.total_epsilon = float(total_epsilon)
         self.delta = float(delta)
         self.ledger = ledger
+        self._external_anchor = anchor
 
     def _charges(self) -> list[dict]:
-        # Verify the chain first: a tampered ledger must not yield a spend figure.
-        entries = verify_chain(self.ledger.path, key=self.ledger._key)
+        # Verify the chain first: a tampered or truncated ledger must not yield a spend figure.
+        local = self.ledger.anchor
+        external = self._external_anchor() if self._external_anchor is not None else None
+        entries = verify_chain(
+            self.ledger.path,
+            key=self.ledger._key,
+            anchor=local,
+            missing_ok=local is None and external is None,
+        )
+        if external is not None:
+            verify_chain(self.ledger.path, key=self.ledger._key, anchor=external)
         return [e.payload for e in entries if e.event == CHARGE_EVENT]
 
     def spent(self) -> float:

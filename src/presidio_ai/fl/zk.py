@@ -4,9 +4,10 @@ ADR-0002 stopped a *deviating* coordinator or party; this module closes the rema
 gap — a party submitting a **well-formed but out-of-norm** update to dominate/poison the
 aggregate. Because secure aggregation hides individual updates, the bound must be proven
 in **zero knowledge**: a party proves its committed update lies within a norm bound
-without revealing it. The proven bound is meant to equal the DP **clip sensitivity**, so
-the proof turns the accountant's "the client clipped" *assumption* into an enforced fact —
-the per-client ``(epsilon, delta)`` becomes sound against a *malicious* client.
+without revealing it. The L∞ proof bounds poisoning. The L2 proof (ADR-0005), with the
+bound set to the DP **clip norm**, turns the accountant's "the client clipped"
+*assumption* into an enforced fact, so the per-client ``(epsilon, delta)`` holds against a
+*malicious* client; an L∞ bound alone allows an L2 norm of ``B·sqrt(dim)``.
 
 What is implemented: a transparent (no trusted setup) **Pedersen bit-decomposition range
 proof** over the prime-order MODP-2048 group from :mod:`presidio_ai.fl.commit`:
@@ -17,8 +18,11 @@ proof** over the prime-order MODP-2048 group from :mod:`presidio_ai.fl.commit`:
   OR-prove each is a bit, and check ``Π C_i^{2^i} == C`` — which binds the bits (and the
   randomness) to the original commitment, so the verifier learns only "in range".
 * **L∞ bound** (:func:`prove_bounded`/:func:`verify_bounded`): prove every coordinate of a
-  committed vector lies in ``[-B, B]`` by range-proving the shifted commitment
-  ``C_k · g^B`` in ``[0, 2^bits)``.
+  committed vector lies in ``[-B, B]`` by range-proving **both** ``C_k · g^B`` (opens to
+  ``u_k + B``) and ``g^B · C_k^{-1}`` (opens to ``B - u_k``) in ``[0, 2^bits)``. The two
+  openings sum to ``2B`` and ``2^{bits+1} < q``, so both being in range forces
+  ``0 <= u_k + B <= 2B``. One range proof alone would admit ``u_k`` up to ``2^bits - 1 - B``
+  (about ``3B`` when ``2B`` is a power of two).
 
 The Fiat–Shamir transcript binds the group, the commitment, the bound, and **all** bit
 commitments, so a proof cannot be replayed onto a different commitment (no weak-FS).
@@ -204,11 +208,24 @@ def verify_range(
 
 @dataclass(frozen=True)
 class BoundedNormProof:
-    """A proof that every coordinate of a committed vector lies in ``[-bound, bound]``."""
+    """A proof that every coordinate of a committed vector lies in ``[-bound, bound]``.
+
+    ``coordinate_proofs[k]`` range-proves ``u_k + bound`` (lower side) and
+    ``upper_proofs[k]`` range-proves ``bound - u_k`` (upper side); both are required.
+    """
 
     bound: int
     bits: int
     coordinate_proofs: list[RangeProof]
+    upper_proofs: list[RangeProof]
+
+
+#: Transcript tag separating the upper-side range proofs from the lower-side ones.
+_UPPER_SIDE_TAG = 0x55505045  # "UPPE"
+
+
+def _upper_domain(group: SchnorrGroup, domain: int) -> int:
+    return _challenge(group, _UPPER_SIDE_TAG, domain)
 
 
 def prove_bounded(
@@ -222,22 +239,31 @@ def prove_bounded(
 ) -> BoundedNormProof:
     """Prove each committed coordinate ``u_k in [-bound, bound]`` (L∞), in zero knowledge.
 
-    Each coordinate is proven by range-proving the shifted value ``u_k + bound`` in
-    ``[0, 2^bits)`` against the shifted commitment ``C_k · g^bound``. ``bound`` is intended
-    to be the DP clip sensitivity (in the same fixed-point units as the committed values),
-    so a valid proof enforces the sensitivity the accountant assumes.
+    Each coordinate is proven from both sides: ``u_k + bound`` in ``[0, 2^bits)`` against
+    ``C_k · g^bound``, and ``bound - u_k`` in ``[0, 2^bits)`` against ``g^bound · C_k^{-1}``
+    (blinding ``-r_k``). ``bound`` is the per-coordinate bound in the same fixed-point units
+    as the committed values. It bounds the L∞ norm only; see ADR-0005 for the L2 gate that
+    proves the accountant's clip sensitivity.
     """
     if bound < 1:
         raise ProofError("bound must be >= 1")
     if len(values) != len(randomness):
         raise ProofError("values and randomness must have equal length")
     bits = (2 * bound).bit_length()
-    proofs: list[RangeProof] = []
+    if 2 * (1 << bits) >= group.q:
+        raise ProofError("bound too large for the group order")
+    q = group.q
+    upper_domain = _upper_domain(group, domain)
+    lower: list[RangeProof] = []
+    upper: list[RangeProof] = []
     for u, r in zip(values, randomness, strict=True):
         if not -bound <= u <= bound:
             raise ProofError(f"coordinate {u} is outside [-{bound}, {bound}]")
-        proofs.append(prove_range(u + bound, r, bits=bits, group=group, rng=rng, domain=domain))
-    return BoundedNormProof(bound=bound, bits=bits, coordinate_proofs=proofs)
+        lower.append(prove_range(u + bound, r, bits=bits, group=group, rng=rng, domain=domain))
+        upper.append(
+            prove_range(bound - u, (-r) % q, bits=bits, group=group, rng=rng, domain=upper_domain)
+        )
+    return BoundedNormProof(bound=bound, bits=bits, coordinate_proofs=lower, upper_proofs=upper)
 
 
 def verify_bounded(
@@ -247,17 +273,30 @@ def verify_bounded(
     group: SchnorrGroup = MODP2048_GROUP,
     domain: int = 0,
 ) -> bool:
-    """Verify an L∞ bounded-norm proof against per-coordinate commitments (fail-closed)."""
+    """Verify an L∞ bounded-norm proof against per-coordinate commitments (fail-closed).
+
+    Accepts only if every committed coordinate lies in ``[-proof.bound, proof.bound]``:
+    both the lower-side and the upper-side range proof must verify.
+    """
     if proof.bound < 1 or proof.bits != (2 * proof.bound).bit_length():
         return False
-    if len(commitments) != len(proof.coordinate_proofs):
+    if 2 * (1 << proof.bits) >= group.q:
         return False
-    g_bound = pow(group.g, proof.bound % group.q, group.p)
-    for commitment, range_proof in zip(commitments, proof.coordinate_proofs, strict=True):
-        if range_proof.bits != proof.bits:
+    n = len(commitments)
+    if len(proof.coordinate_proofs) != n or len(proof.upper_proofs) != n:
+        return False
+    p = group.p
+    g_bound = pow(group.g, proof.bound % group.q, p)
+    upper_domain = _upper_domain(group, domain)
+    for commitment, lower, upper in zip(
+        commitments, proof.coordinate_proofs, proof.upper_proofs, strict=True
+    ):
+        if lower.bits != proof.bits or upper.bits != proof.bits:
             return False
-        shifted = (commitment * g_bound) % group.p
-        if not verify_range(shifted, range_proof, group=group, domain=domain):
+        if not verify_range((commitment * g_bound) % p, lower, group=group, domain=domain):
+            return False
+        complement = (g_bound * pow(commitment, p - 2, p)) % p
+        if not verify_range(complement, upper, group=group, domain=upper_domain):
             return False
     return True
 
@@ -333,6 +372,18 @@ class L2BoundedProof:
     square_proofs: list[SquareProof]
     range_sum: RangeProof  # S = Σ x_k² ∈ [0, 2^bits)
     range_diff: RangeProof  # bound² − S ∈ [0, 2^bits)  ⇒  S ≤ bound²
+    # |x_k| ≤ bound for every k. Implied by ‖x‖₂ ≤ bound, so honest provers always meet it;
+    # it stops x_k² from wrapping modulo q, without which a large coordinate could be
+    # cancelled by another whose square is ≡ −x_k² + small (mod q).
+    coordinate_bound: BoundedNormProof
+
+
+#: Transcript tag for the per-coordinate bound inside an L2 proof.
+_L2_COORD_TAG = 0x4C32434F  # "L2CO"
+
+
+def _l2_coord_domain(group: SchnorrGroup, prefix: int) -> int:
+    return _challenge(group, _L2_COORD_TAG, prefix)
 
 
 def prove_l2_bounded(
@@ -346,8 +397,9 @@ def prove_l2_bounded(
     """Prove ``‖values‖₂ ≤ bound`` for a committed vector, in zero knowledge.
 
     ``blindings`` are the blindings of the *existing* per-coordinate commitments
-    ``C_x_k = g^{x_k} h^{r_k}``. Commits each square, proves correctness, and range-proves
-    the homomorphic squared-norm ``S = Σ x_k²`` lies in ``[0, bound²]``.
+    ``C_x_k = g^{x_k} h^{r_k}``. Proves every ``|x_k| ≤ bound`` (so no square wraps modulo
+    ``q``), commits each square, proves correctness, and range-proves the homomorphic
+    squared-norm ``S = Σ x_k²`` lies in ``[0, bound²]``.
     """
     if bound < 1:
         raise ProofError("bound must be >= 1")
@@ -355,12 +407,18 @@ def prove_l2_bounded(
         raise ProofError("values and blindings must have equal length")
     q = group.q
     m = bound * bound
-    if not m < q:
-        raise ProofError("bound² must fit the field (choose smaller bound or fixed-point scale)")
+    if not max(len(values), 1) * m < q:
+        raise ProofError("dim · bound² must fit the field (choose smaller bound or scale)")
     prefix = _challenge(
         group,
         bound,
         *[pedersen_commit(v, r, group) for v, r in zip(values, blindings, strict=True)],
+    )
+    for v in values:
+        if not -bound <= v <= bound:
+            raise ProofError("squared norm exceeds bound² (L2 norm out of bound)")
+    coordinate_bound = prove_bounded(
+        values, blindings, bound=bound, group=group, rng=rng, domain=_l2_coord_domain(group, prefix)
     )
     square_commitments: list[int] = []
     square_proofs: list[SquareProof] = []
@@ -385,6 +443,7 @@ def prove_l2_bounded(
         square_proofs=square_proofs,
         range_sum=range_sum,
         range_diff=range_diff,
+        coordinate_bound=coordinate_bound,
     )
 
 
@@ -400,12 +459,17 @@ def verify_l2_bounded(
     if proof.bound != bound:
         return False
     m = bound * bound
-    if m >= q or proof.bits != m.bit_length():
-        return False
     n = len(commitments)
+    if max(n, 1) * m >= q or proof.bits != m.bit_length():
+        return False
     if len(proof.square_commitments) != n or len(proof.square_proofs) != n:
         return False
     prefix = _challenge(group, bound, *commitments)
+    coord = proof.coordinate_bound
+    if coord.bound != bound or not verify_bounded(
+        commitments, coord, group=group, domain=_l2_coord_domain(group, prefix)
+    ):
+        return False
     for c_x, c_y, sp in zip(
         commitments, proof.square_commitments, proof.square_proofs, strict=True
     ):

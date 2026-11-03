@@ -29,6 +29,53 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 - The `EvidenceRef` contract test asserts against `presidio_evidence.EVIDENCE_REF_FIELDS`,
   in field order.
 
+### Security
+Fixes from a tool-assisted pre-publication security review (two passes) and the follow-up
+review of its findings. None affects the shipped single-process round helpers, which prove,
+deal and verify in one process; all affect integrations that verify proofs, dealers or
+signatures produced by other parties, and several corrected overstated claims in
+`SECURITY.md` and the ADRs (each ADR carries a dated amendment).
+- **L∞ bounded-norm proofs are two-sided** (MODP and native). The verifier checked only
+  `u + B ∈ [0, 2^bits)`, admitting coordinates up to about `3B` (MODP) or far more (native,
+  where the range is rounded up to 8/16/32/64 bits). `BoundedNormProof` gains
+  `upper_proofs`.
+- **L2 bounded-norm proofs bound each coordinate.** Squares summed modulo `q` let a large
+  coordinate be cancelled by a field element; the proof now carries a per-coordinate bound
+  and requires `dim · B² < q`. `L2BoundedProof` gains `coordinate_bound`; the native proof
+  tuple gains a fourth element.
+- **`sensitivity_proven` is recorded only by the L2 gate.** The L∞ gate records `false`
+  (an L∞ bound allows an L2 norm of `B·sqrt(dim)`). Gated rounds add `proven_norm` and
+  `norm_bound` to the signed `consortium-round@1` commitment; ungated rounds hash as before.
+- **Survivor-set agreement uses Ed25519 identity signatures**, verified against public keys
+  only, bound to the round attempt, stored on the ledger, and counted only for signers in
+  the alive set and the session. `SurvivorSetSigner` refuses to sign two sets for one
+  attempt. The HMAC scheme let the coordinator forge the signatures it was meant to check.
+- **`god_aggregate` excludes malformed dealers** (wrong dimension or degree, missing
+  holders, non-group commitments) instead of aborting or, in one ordering, silently
+  corrupting the sum. New optional `dim` parameter.
+- **`SecureAggregationSession` pins the survivor set** at its first aggregation (`exclude()`
+  for attributed cheaters) and refuses to mask two different vectors for one party.
+- **`fl.transport`**: every message is Ed25519-signed; the new `RoundCoordinator` accepts one
+  submission per party and aggregates once; `serve()` takes `identity_trust` and
+  `coordinator_id` and exposes `POST /submit`, `/close` and `/aggregate`. The old server
+  took the party id from the body, let submissions be overwritten and recomputed the
+  aggregate on every request, so two reads revealed one party's update.
+- **Ledger truncation is detected against an anchor.** `verify_chain` takes `anchor`,
+  `min_entries` and `missing_ok` and raises on a missing file by default;
+  `EpsilonBudget` checks the chain against its `Ledger`'s own tail (and an optional
+  external `anchor`), so truncating or deleting the ledger no longer refunds spend;
+  `pai verify` gains `--expect-entry SEQ:HEX` and `--min-entries` and exits 1 on a missing
+  ledger, as documented.
+- **`pai consortium-round` validates silo ids** as plain filenames and keeps every per-silo
+  ledger inside `--budget-dir` (path traversal).
+- **Robustness gate rejects a non-finite score** (NaN passed both comparisons) and requires
+  `canary_pass is True`.
+- **Native `[zk]` backend builds.** It had never compiled (`bulletproofs 4.0` is built on
+  `curve25519-dalek-ng`); now `bulletproofs 5.0` and `pyo3 0.29` (RUSTSEC-2025-0020,
+  RUSTSEC-2026-0177), with `Cargo.lock` committed. Prover and verifier pad identically
+  (honest proofs over a non-power-of-two length failed), and the bound and length are in
+  the transcript. The `ci-zk` lane now runs on pull requests that touch the proof code.
+
 ### Removed
 - The pre-0.31 encoder and every path that used it (#74): `_legacy_canonical_v0`,
   `legacy_sha256_hex_v0`, the legacy branch of `canonical_for` and the untagged-request

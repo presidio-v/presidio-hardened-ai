@@ -16,6 +16,20 @@ sum aggregation and the ADR-0002 Feldman VSS.
 > the bounded-norm ZK gate to the *shared* inputs is **done v0.28.0** via a commitment-
 > equality proof. All pure-Python and verified in the default gate.
 
+## Amendment (2026-11-03, v0.32.0)
+
+The "malicious dealer is excluded" claim held only for Feldman-inconsistent shares.
+`god_aggregate` did not check a dealer's dimension or degree, so a malformed dealer could
+abort the round (an uncaught exception) or, when first in iteration order with a
+higher-degree polynomial, silently corrupt the sum. Since 0.32.0 a dealer is included only
+if its input has the round's dimension (`dim`, an agreed round parameter, otherwise the
+dimension a strict majority declares), exactly `threshold` subgroup-element commitments per
+coordinate and a share for every holder; anything else is excluded without raising.
+
+Exclude-and-retry (Option D) has a stated cost: the aggregates before and after an
+exclusion differ by the excluded party's update. That party is an attributed cheater, so
+the leak is limited to it. Each retry is a new signed round attempt (ADR-0002 amendment).
+
 ## Context
 
 ADR-0002 gives **security-with-abort**: a deviating coordinator or party is detected and the

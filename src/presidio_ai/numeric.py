@@ -36,6 +36,7 @@ PRECISION: dict[str, int] = {
     "score": 12,
     "clip_bound": 12,
     "l2_bound": 12,
+    "norm_bound": 12,
 }
 
 #: Fields where a non-zero value must not round to ``"0"``: recording ``delta = "0"``

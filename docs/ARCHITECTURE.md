@@ -102,13 +102,18 @@ then be sealed with `iga export` / `iga verify-bundle`.
 
 The same claim→evidence loop closes for a **multi-party** round. Several mutually-distrusting
 banks jointly train; the coordinator (and any colluding minority) learns only the aggregate;
-the round is hardened against a *deviating* coordinator or party and proves each contribution
-is within the DP clip norm — then emits one signed `D4` an auditor verifies exactly like the
-single-node case.
+the round is hardened against a *deviating* coordinator or party and proves each contribution's
+L2 norm is within the DP clip norm — then emits one signed `D4` an auditor verifies exactly
+like the single-node case.
 
 ```python
 # presidio-hardened-ai: one governed, malicious-secure consortium round
-from presidio_ai.fl.consortium import run_secure_consortium_round, sign_survivor_set
+from presidio_ai.fl.consortium import SurvivorSetSigner, run_secure_consortium_round
+
+# Each party signs the survivor set with its own Ed25519 identity key (in a deployment, on
+# its own machine); the coordinator holds only the public keys (`identity_trust`).
+alive = sorted(updates)
+sigs = {p: SurvivorSetSigner(p, identity_priv[p])("round-1", alive) for p in alive}
 
 res = run_secure_consortium_round(
     round_id="round-1",
@@ -117,11 +122,11 @@ res = run_secure_consortium_round(
     session=session,  # verifiable-mode (Feldman VSS)
     ledger=ledger,
     survivor_signatures=sigs,
-    survivor_keys=skeys,
+    survivor_trust=identity_trust,
     survivor_threshold=2,
     group=group,
     budgets=budgets,
-    clip_bound=2.0,  # ZK bounded-norm gate
+    l2_bound=2.0,  # ZK L2 bounded-norm gate at the DP clip norm
     signing_key=PRIV,
     signer="presidio-hardened-ai",
     algorithm="ed25519",
@@ -136,20 +141,22 @@ trust = load_trust_store('{"presidio-hardened-ai": {"alg": "ed25519", "public_ke
 assert verify_ref(refs[0], trust)  # D4 verifies; a tampered key fails closed
 ```
 
-Result (verified live against `presidio-hardened-ai` v0.20.0 + ikigov v0.19.0):
+Result (verified live against `presidio-hardened-ai` v0.20.0 + ikigov v0.19.0, with the
+v0.20.0 API: HMAC survivor signatures and the L∞ gate. Since 0.32.0 the signatures are
+Ed25519, and `sensitivity_proven=True` is recorded only by the L2 gate shown above):
 
 ```
 PRODUCER  survivors=[bankA,bankB,bankC]  signers=[bankA,bankB,bankC]
           max per-silo epsilon=1.0795    charged silos=[bankA,bankB,bankC]
-          ledger: sensitivity_proven=True  clip_bound=2.0
+          ledger: sensitivity_proven=True  clip_bound=2.0   # v0.20.0; false for L∞ since 0.32.0
           signed D4 evidence -> consortium.evidence.json
 CONSUMER  D4: verify_ref=True  (signer=presidio-hardened-ai, ledger_ref=pai-ledger:seq/1)
           tampered-key verify (must be False): False
 ```
 
 What that one run exercises, all composing: authenticated key agreement → Feldman-VSS seed
-sharing → Pedersen-committed signed inputs → **ZK bounded-norm proofs** (so the per-client
-`(ε, δ)` is *proven*, not assumed) → exact field secure aggregation with dropout recovery →
+sharing → Pedersen-committed signed inputs → **ZK L2 bounded-norm proofs** (so the per-client
+`(ε, δ)` is *proven*, not assumed, when the bound is the clip norm) → exact field secure aggregation with dropout recovery →
 signed survivor-set + homomorphic aggregate check (security-with-abort) → n-of-m MPA →
 per-silo ε charged to tamper-evident budgets → one signed `D4` the governance spine verifies.
 
@@ -207,8 +214,9 @@ exactly as the single-node and security-with-abort cases do.
   independent assessment.
 - **Consortium round invariants (P4)** — the producer and all parties must share the *same*
   `SecureAggregationSession` group for verifiable mode (Feldman VSS) and the same commitment
-  group for the ZK proofs; `clip_bound` is the DP clip sensitivity, so a verifying bounded-norm
-  proof makes the charged `(ε, δ)` sound against a malicious client. Guarantee is
+  group for the ZK proofs. Only the L2 gate (`l2_bound`, set to the DP clip norm) makes the
+  charged `(ε, δ)` sound against a malicious client; the L∞ gate (`clip_bound`) bounds
+  poisoning but allows an L2 norm of up to `B·sqrt(dim)`. Guarantee is
   **security-with-abort**: any deviation (equivocation, false aggregate, inconsistent share,
   out-of-norm input) yields a clean, ledger-recorded abort rather than a bad result.
 
@@ -229,7 +237,7 @@ exactly as the single-node and security-with-abort cases do.
 
 - [ADR-0001](adr/0001-multiparty-secure-aggregation.md) — multi-party consortium training via secure aggregation (P4, **Accepted & built**: v0.11.0 core, v0.12.0 exact field arithmetic, v0.13.0 governed rounds, v0.14.0 `[mpc]` key agreement + transport).
 - [ADR-0002](adr/0002-malicious-security-hardening.md) — malicious-security hardening: commitments + verifiable secret sharing + signed survivor-set consistency (P4, **Accepted & built** v0.16.0–v0.18.0; security-with-abort).
-- [ADR-0003](adr/0003-bounded-norm-input-validation.md) — bounded-norm input validation via zero-knowledge (transparent Pedersen range proofs over the prime-order group; enforces the DP clip sensitivity) (P4, **Accepted & built** v0.19.0–v0.20.0; Ristretto255+Bulletproofs perf backend deferred).
+- [ADR-0003](adr/0003-bounded-norm-input-validation.md) — bounded-norm input validation via zero-knowledge (transparent Pedersen range proofs over the prime-order group; L∞ bound, two-sided since v0.32.0, which bounds poisoning but not the L2 sensitivity) (P4, **Accepted & built** v0.19.0–v0.20.0, amended v0.32.0).
 - [ADR-0004](adr/0004-ristretto-bulletproofs-backend.md) — Ristretto255 + Bulletproofs performance backend: a pluggable `ProofBackend` (audited dalek crates behind `[zk]`, built in `ci-zk`) with the pure-Python MODP proof as a dependency-free fallback; same guarantee (P4, **Accepted & built** v0.21.0–v0.22.0).
 - [ADR-0005](adr/0005-l2-bounded-norm.md) — L2 bounded-norm proofs: commit squares + a square-correctness Σ-proof + range-prove the homomorphic squared-norm, enforcing the *exact* DP clip norm on both backends (P4, **Accepted & built** v0.23.0–v0.24.0).
 - [ADR-0006](adr/0006-guaranteed-output-delivery.md) — guaranteed output delivery: honest-majority robust secret-sharing aggregation (VSS-shared inputs + robust reconstruction) so a misbehaving minority cannot halt the round; interim exclude-and-retry (P4, **Accepted & built** v0.25.0–v0.27.0).

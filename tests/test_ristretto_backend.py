@@ -96,3 +96,40 @@ def test_batch_aggregation_decision_equivalence(backend_factory):
     }
     proof = b.prove_bounded_batch(party_values, party_blindings, bound=16)
     assert b.verify_bounded_batch(party_commitments, proof, bound=16) is True
+
+
+# --- audit 2026-11-03 regressions (native backend) --------------------------
+
+
+@pytest.mark.parametrize("n_values", [1, 2, 3, 5, 6, 7])
+def test_native_honest_proofs_verify_at_any_length(n_values):
+    """Prover and verifier pad identically, so non-power-of-two lengths verify."""
+    b = RistrettoBulletproofsBackend()
+    values = [(-1) ** i * (i % 17) for i in range(n_values)]
+    blindings = [b.random_blinding() for _ in values]
+    commits = [b.commit(v, r) for v, r in zip(values, blindings, strict=True)]
+    proof = b.prove_bounded(values, blindings, bound=16)
+    assert b.verify_bounded(commits, proof, bound=16) is True
+
+
+@pytest.mark.parametrize("u", [17, 100, 200, 238])
+def test_native_rejects_out_of_bound_value_proven_one_sided(u):
+    """A proof made at a larger bound must not admit u > bound (one-sided slack, 3x+)."""
+    b = RistrettoBulletproofsBackend()
+    bound, wide = 16, 127  # both use 8-bit range proofs
+    r = b.random_blinding()
+    commitment = b.commit(u, r)
+    # prove_bounded([v], bound=wide) once range-proved v + wide == u + bound against the
+    # same shifted point the verifier computes for bound=16.
+    forged = b.prove_bounded([u + bound - wide], [r], bound=wide)
+    assert b.verify_bounded([commitment], forged, bound=bound) is False
+
+
+def test_native_proof_is_bound_to_its_bound_and_length():
+    b = RistrettoBulletproofsBackend()
+    values = [1, 2]
+    blindings = [b.random_blinding() for _ in values]
+    commits = [b.commit(v, r) for v, r in zip(values, blindings, strict=True)]
+    proof = b.prove_bounded(values, blindings, bound=16)
+    assert b.verify_bounded(commits, proof, bound=17) is False
+    assert b.verify_bounded(commits[:1], proof, bound=16) is False

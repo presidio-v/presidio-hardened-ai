@@ -9,6 +9,14 @@ adversarial model update can do (backdoor / targeted poison)
 "semantic robustness" scope (also named in ADR-0002/0005/0006). This is an **ML-robustness**
 problem, not a cryptographic one, and is treated as such.
 
+## Amendment (2026-11-03, v0.32.0)
+
+The score gates compared with `<` and `>`, which are both false for NaN, so a NaN
+validation score was accepted. Since 0.32.0 a score that is not a finite real number is
+rejected, `canary_pass` must be exactly `True` when canaries are required, and a rejected
+round records a non-finite score as `score: null, score_non_finite: true` instead of
+aborting on the encoder.
+
 ## Context
 
 The crypto stack now guarantees: confidentiality of individual updates (ADR-0001), protocol

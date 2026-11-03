@@ -224,6 +224,13 @@ class SecureAggregationSession:
                 seed = src.randrange(self._seed_mod)
                 self._pair_seed[key] = seed
                 self._pair_shares[key], self._pair_commit[key] = self._deal(seed)
+        # One-shot state. Each party's masks are used for one vector only (masking two
+        # different vectors with the same masks reveals their difference), and the
+        # survivor set is pinned at the first unmasking: unmasking two different sets lets
+        # the caller difference the sums and recover an individual update.
+        self._masked_input: dict[Hashable, tuple[int, ...]] = {}
+        self._pinned: frozenset | None = None
+        self._excluded: set[Hashable] = set()
 
     def _deal(self, seed: int) -> tuple[dict[int, int], list[int] | None]:
         """Secret-share a seed; return (shares, coefficient commitments | None).
@@ -294,6 +301,10 @@ class SecureAggregationSession:
         if len(q_vector) != self.dim:
             raise ValueError(f"vector must have length {self.dim}")
         out = [v % self.prime for v in q_vector]
+        prior = self._masked_input.get(pid)
+        if prior is not None and prior != tuple(out):
+            raise ValueError(f"party {pid!r} already masked a different vector in this session")
+        self._masked_input[pid] = tuple(out)
         self_mask = _field_prg(self._self_seed[pid], self.dim, self.prime)
         for k in range(self.dim):
             out[k] = (out[k] + self_mask[k]) % self.prime
@@ -306,6 +317,22 @@ class SecureAggregationSession:
             for k in range(self.dim):
                 out[k] = (out[k] + sign * pair_mask[k]) % self.prime
         return out
+
+    def exclude(self, pid: Hashable) -> None:
+        """Remove an attributed cheater from the pinned survivor set (exclude-and-retry).
+
+        The next aggregation may then run over the pinned set minus the excluded parties.
+        The difference between the two sums is the excluded party's update, so call this
+        only for a party that was proven to misbehave (ADR-0006).
+        """
+        if pid not in self._x:
+            raise KeyError(f"unknown party: {pid!r}")
+        self._excluded.add(pid)
+
+    @property
+    def pinned_survivors(self) -> frozenset | None:
+        """The survivor set fixed by the first aggregation, or None before it."""
+        return self._pinned
 
     def mask(self, pid: Hashable, vector: Sequence[float]) -> list[int]:
         """Quantise ``vector`` (reals) into the field and mask it. Returns field elements."""
@@ -342,6 +369,14 @@ class SecureAggregationSession:
         Recovery needs at least ``threshold`` survivors or it fails closed.
         """
         survivors, dropped_set = self._resolve_survivors(masked, dropped)
+        current = frozenset(survivors)
+        if self._pinned is None:
+            self._pinned = current
+        elif current != self._pinned - self._excluded:
+            raise ValueError(
+                "survivor set differs from the one pinned at the first aggregation; only "
+                "parties removed with exclude() may leave (ADR-0002 survivor-set pinning)"
+            )
         quorum = [self._x[p] for p in survivors]
         prime = self.prime
 

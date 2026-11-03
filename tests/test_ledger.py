@@ -88,8 +88,61 @@ def test_empty_event_rejected(tmp_path):
         Ledger(tmp_path / "l.jsonl", key=KEY).append("")
 
 
-def test_verify_missing_file_is_empty(tmp_path):
-    assert verify_chain(tmp_path / "nope.jsonl", key=KEY) == []
+def test_verify_missing_file_raises_unless_missing_ok(tmp_path):
+    with pytest.raises(LedgerError, match="missing"):
+        verify_chain(tmp_path / "nope.jsonl", key=KEY)
+    assert verify_chain(tmp_path / "nope.jsonl", key=KEY, missing_ok=True) == []
+    with pytest.raises(LedgerError, match="missing"):
+        verify_chain(tmp_path / "nope.jsonl", key=KEY, missing_ok=True, min_entries=1)
+
+
+# --- truncation / deletion against an anchor (audit 2026-11-03) -------------
+
+
+def _three(path):
+    led = Ledger(path, key=KEY)
+    for i in range(3):
+        led.append("e", {"i": i})
+    return led
+
+
+def _truncate(path, keep):
+    lines = path.read_text().splitlines(keepends=True)
+    path.write_text("".join(lines[:keep]))
+
+
+def test_suffix_truncation_verifies_without_anchor_but_not_with_one(tmp_path):
+    path = tmp_path / "l.jsonl"
+    led = _three(path)
+    anchor = led.anchor
+    assert anchor == (2, led.head_hash)
+    _truncate(path, 1)
+    assert len(verify_chain(path, key=KEY)) == 1  # the limitation, stated in the docs
+    with pytest.raises(LedgerError, match="truncated"):
+        verify_chain(path, key=KEY, anchor=anchor)
+    with pytest.raises(LedgerError, match="truncated"):
+        verify_chain(path, key=KEY, min_entries=3)
+
+
+def test_anchor_detects_replaced_tail_and_allows_growth(tmp_path):
+    path = tmp_path / "l.jsonl"
+    led = _three(path)
+    anchor = led.anchor
+    led.append("e", {"i": 3})
+    assert len(verify_chain(path, key=KEY, anchor=anchor)) == 4  # growth past the anchor is fine
+    # Roll back to two entries and append a different third one (keyed writer).
+    _truncate(path, 2)
+    Ledger(path, key=KEY).append("e", {"i": "other"})
+    with pytest.raises(LedgerError, match="anchor"):
+        verify_chain(path, key=KEY, anchor=anchor)
+
+
+def test_anchor_must_be_a_non_negative_int(tmp_path):
+    path = tmp_path / "l.jsonl"
+    _three(path)
+    for bad in (-1, True, "1"):
+        with pytest.raises(LedgerError, match="anchor"):
+            verify_chain(path, key=KEY, anchor=(bad, "0" * 64))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permissions")
