@@ -57,6 +57,7 @@ from presidio_ai.sanitize import (
     validate_path,
     validate_pii_action,
     validate_pii_mode,
+    validate_silo_id,
 )
 from presidio_ai.security import increment_session_count, log_security_event, session_limit
 
@@ -280,12 +281,26 @@ def ingest(
 def verify(
     ledger_path: Path = typer.Option(..., "--ledger", help="Path to the JSON-L ledger."),
     key: str | None = typer.Option(None, "--key", help=f"Ledger key (or ${_KEY_ENV})."),
+    expect_entry: str | None = typer.Option(
+        None,
+        "--expect-entry",
+        help="SEQ:HEX anchor, e.g. the O5 head of a verified signed export; detects "
+        "truncation or rollback past it.",
+    ),
+    min_entries: int = typer.Option(0, "--min-entries", min=0, help="Fail below N entries."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Emit machine-readable JSON only."),
 ) -> None:
-    """Verify the ledger chain; exit 0 if intact, 1 if tampered or missing."""
+    """Verify the ledger chain; exit 0 if intact, 1 if tampered, truncated or missing.
+
+    Without ``--expect-entry`` or ``--min-entries`` a ledger whose trailing entries were
+    dropped still verifies: the chain alone cannot show that it ended earlier.
+    """
     resolved_key = _resolve_key(key)
     try:
-        entries = verify_chain(ledger_path, key=resolved_key)
+        anchor = _parse_anchor(expect_entry) if expect_entry is not None else None
+        entries = verify_chain(
+            ledger_path, key=resolved_key, anchor=anchor, min_entries=min_entries
+        )
     except LedgerError as exc:
         log_security_event({"event": "pai-ledger-verify", "ok": False})
         if quiet:
@@ -298,6 +313,15 @@ def verify(
         typer.echo(json.dumps({"ok": True, "n_entries": len(entries), "head": _head(entries)}))
     else:
         typer.echo(f"Ledger OK — {len(entries)} entr{'y' if len(entries) == 1 else 'ies'} verified")
+
+
+def _parse_anchor(text: str) -> tuple[int, str]:
+    seq, sep, digest = text.partition(":")
+    if not sep or not seq.isdigit() or len(digest) != 64:
+        raise LedgerError("--expect-entry must be SEQ:HEX (64 hex characters)")
+    if any(c not in "0123456789abcdef" for c in digest):
+        raise LedgerError("--expect-entry hash must be lowercase hex")
+    return int(seq), digest
 
 
 def _head(entries: list) -> str | None:
@@ -871,9 +895,11 @@ def consortium_round(
         delta = float(spec["delta"])
         dim = int(spec["dim"])
         threshold = int(spec["threshold"])
-        updates = {str(k): [float(x) for x in v] for k, v in spec["updates"].items()}
+        updates = {
+            validate_silo_id(str(k)): [float(x) for x in v] for k, v in spec["updates"].items()
+        }
         dp_spec = spec["dp"]
-        dropped = [str(x) for x in spec.get("dropped", [])]
+        dropped = [validate_silo_id(str(x)) for x in spec.get("dropped", [])]
         parties = sorted(set(updates) | set(dropped))
         dp_results = {
             s: dpsgd_epsilon(
@@ -902,12 +928,17 @@ def consortium_round(
         budgets = None
         if budget_dir is not None:
             budget_dir.mkdir(parents=True, exist_ok=True)
-            budgets = {
-                s: EpsilonBudget(
-                    budget_epsilon, delta, Ledger(budget_dir / f"{s}.jsonl", key=resolved_key)
+            root = budget_dir.resolve()
+            budgets = {}
+            for s in updates:
+                silo_ledger = budget_dir / f"{s}.jsonl"
+                if silo_ledger.resolve().parent != root:  # defence in depth (symlinks)
+                    raise ValidationError(f"silo ledger for {s!r} would leave --budget-dir")
+                if silo_ledger.resolve() == ledger_path.resolve():
+                    raise ValidationError(f"silo ledger for {s!r} is the round ledger")
+                budgets[s] = EpsilonBudget(
+                    budget_epsilon, delta, Ledger(silo_ledger, key=resolved_key)
                 )
-                for s in updates
-            }
 
         alg, sig_key = (algorithm, None)
         if evidence_out is not None:

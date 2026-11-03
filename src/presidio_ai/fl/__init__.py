@@ -31,11 +31,13 @@ from presidio_ai.fl.consortium import (
     PartyMisbehavior,
     RetryRoundResult,
     SecureConsortiumResult,
+    SurvivorSetSigner,
     run_consortium_round,
     run_consortium_round_with_retry,
     run_god_consortium_round,
     run_secure_consortium_round,
     sign_survivor_set,
+    survivor_set_hash,
     verify_survivor_set,
 )
 from presidio_ai.fl.coordinator import (
@@ -83,8 +85,10 @@ from presidio_ai.fl.secure_agg import (
 )
 from presidio_ai.fl.transport import (
     MaskedSubmission,
+    RoundCoordinator,
     TransportError,
     decode_submission,
+    encode_command,
     encode_submission,
 )
 from presidio_ai.fl.zk import (
@@ -125,6 +129,8 @@ __all__ = [
     "SecureConsortiumResult",
     "sign_survivor_set",
     "verify_survivor_set",
+    "survivor_set_hash",
+    "SurvivorSetSigner",
     "PartyMisbehavior",
     "run_consortium_round_with_retry",
     "RetryRoundResult",
@@ -147,6 +153,8 @@ __all__ = [
     "SignedDHKey",
     "KeyAgreementError",
     "encode_submission",
+    "encode_command",
+    "RoundCoordinator",
     "decode_submission",
     "MaskedSubmission",
     "TransportError",

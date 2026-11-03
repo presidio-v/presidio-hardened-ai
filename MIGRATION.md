@@ -23,6 +23,30 @@
   public release is 0.32.0, so no user holds a pre-0.31 ledger or approval.
 - **Python 3.11+.** Python 3.10 reached end of life in October 2026.
 
+### API changes from the pre-publication security fixes
+
+| Before (≤ 0.31) | 0.32.0 |
+|---|---|
+| `sign_survivor_set(round_id, alive, party_id=, key=)` (HMAC) | `sign_survivor_set(round_id, alive, party_id=, private_key_hex=, attempt=1)` (Ed25519), or a `SurvivorSetSigner(party_id, private_key_hex)` per party |
+| `verify_survivor_set(..., keys=)` | `verify_survivor_set(..., identity_trust=, eligible=None, attempt=1)` (public keys) |
+| `run_secure_consortium_round(survivor_keys=)` | `survivor_trust=` (public keys), optional `survivor_attempt=` |
+| `run_consortium_round_with_retry(survivor_keys=)` | `survivor_signers=` (one signer per party) and `survivor_trust=` |
+| `encode_submission(party_id, round_id, masked)` | adds `private_key_hex=`; submissions carry `signature` |
+| `serve(session, round_id=)`; `GET /aggregate` | `serve(session, round_id=, identity_trust=, coordinator_id=)`; `POST /submit`, `/close`, `/aggregate` with signed bodies (`encode_command`) |
+| `verify_chain(path)` returned `[]` for a missing file | raises `LedgerError`; pass `missing_ok=True` for the old behaviour |
+| `god_aggregate(dealt, threshold=, n_holders=)` | adds optional `dim=` |
+
+Survivor-set signers use the parties' Ed25519 identity keys, the same keys that sign
+their X25519 keys (`fl.keyagreement`), and need `presidio-evidence[crypto]`. A session now
+refuses a second aggregation over a different survivor set (call `exclude()` for an
+attributed cheater) and a second, different vector from one party.
+
+Records: an L∞-gated round now records `sensitivity_proven: false`; gated rounds add
+`proven_norm` and `norm_bound` to the D4 commitment, so their content hash differs from
+0.31; ungated rounds hash as before. Survivor-set ledger entries add `attempt`,
+`threshold` and `signatures`. Proof objects gain fields (`upper_proofs`,
+`coordinate_bound`), so proofs made by 0.31 do not verify under 0.32.
+
 ### If you hold pre-0.31 records
 
 Verify them with a 0.31 checkout (`pai verify --ledger <file> --quiet`) and archive the

@@ -29,7 +29,7 @@ deployment each silo masks locally with seeds from authenticated key agreement
 from __future__ import annotations
 
 import secrets
-from collections.abc import Hashable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,11 +46,13 @@ from presidio_ai.evidence import (
     build_consortium_evidence,
     consortium_commitment,
     export_evidence,
+    sign_ed25519,
+    verify_ed25519,
 )
 from presidio_ai.fl.commit import MODP2048_GROUP, SchnorrGroup, pedersen_commit
 from presidio_ai.fl.god import deal_input, god_aggregate
 from presidio_ai.fl.proof_backend import ProofBackend, get_backend
-from presidio_ai.fl.robustness import RobustnessPolicy, RobustnessVerdict
+from presidio_ai.fl.robustness import RobustnessPolicy, RobustnessVerdict, rejected_round_fields
 from presidio_ai.fl.robustness import evaluate as _robustness_evaluate
 from presidio_ai.fl.secure_agg import DEFAULT_FRAC_BITS, PRIME, SecureAggregationSession, dequantize
 from presidio_ai.fl.zk import (
@@ -62,7 +64,7 @@ from presidio_ai.fl.zk import (
     verify_commitment_equality,
     verify_l2_bounded,
 )
-from presidio_ai.hashing import constant_time_equals, hmac_hex, sha256_hex
+from presidio_ai.hashing import sha256_hex
 from presidio_ai.ledger import Ledger
 from presidio_ai.numeric import encode_field
 from presidio_ai.provenance import normalize_parents, with_parents
@@ -251,15 +253,66 @@ def run_consortium_round(
 # SecureAggregationSession and fires during reconstruction.
 
 
-def survivor_set_message(round_id: str, alive: Sequence[str]) -> dict[str, object]:
-    """Canonical message a party signs to attest the round's survivor set."""
-    return {"round_id": round_id, "alive": sorted(alive)}
+def survivor_set_message(round_id: str, alive: Sequence[str], *, attempt: int = 1) -> dict:
+    """Canonical statement a party signs: this round, this attempt, exactly this set."""
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+        raise ConsortiumError("attempt must be an integer >= 1")
+    return {"round_id": round_id, "attempt": attempt, "alive": sorted(str(a) for a in alive)}
 
 
-def sign_survivor_set(round_id: str, alive: Sequence[str], *, party_id: str, key: str) -> str:
-    """A party's signature over (round_id, sorted survivor set), bound to its id."""
-    msg = {**survivor_set_message(round_id, alive), "party": party_id}
-    return hmac_hex(key.encode("utf-8"), msg)
+def survivor_set_hash(round_id: str, alive: Sequence[str], *, attempt: int = 1) -> str:
+    """SHA-256 (lowercase hex) of the canonical survivor-set statement."""
+    return sha256_hex(survivor_set_message(round_id, alive, attempt=attempt))
+
+
+def sign_survivor_set(
+    round_id: str,
+    alive: Sequence[str],
+    *,
+    party_id: str,
+    private_key_hex: str,
+    attempt: int = 1,
+) -> str:
+    """A party's Ed25519 signature over the survivor-set statement, bound to its id.
+
+    Uses the party's long-term identity key (the same key that signs its X25519 key in
+    :mod:`presidio_ai.fl.keyagreement`), so only the party can produce it and anyone with
+    the public key can check it. Needs ``presidio-evidence[crypto]``. Prefer
+    :class:`SurvivorSetSigner`, which also refuses to sign two different sets.
+    """
+    digest = survivor_set_hash(round_id, alive, attempt=attempt)
+    try:
+        return sign_ed25519(digest, party_id, private_key_hex)
+    except ImportError as exc:  # pragma: no cover - crypto extra missing
+        raise ConsortiumError("survivor-set agreement needs presidio-evidence[crypto]") from exc
+
+
+class SurvivorSetSigner:
+    """One party's survivor-set signer: signs at most one set per ``(round_id, attempt)``.
+
+    This is the party-side half of the anti-equivocation defence: an honest party never
+    signs two different survivor sets for the same round attempt, so a coordinator cannot
+    collect ``threshold`` signatures on two sets from an honest majority. In a deployment
+    each party runs its own signer; the coordinator only receives signatures.
+    """
+
+    def __init__(self, party_id: str, private_key_hex: str) -> None:
+        self.party_id = str(party_id)
+        self._key = private_key_hex
+        self._signed: dict[tuple[str, int], str] = {}
+
+    def __call__(self, round_id: str, alive: Sequence[str], *, attempt: int = 1) -> str:
+        digest = survivor_set_hash(round_id, alive, attempt=attempt)
+        prior = self._signed.get((round_id, attempt))
+        if prior is not None and prior != digest:
+            raise ConsortiumError(
+                f"{self.party_id} already signed a different survivor set for "
+                f"round {round_id!r} attempt {attempt}"
+            )
+        self._signed[(round_id, attempt)] = digest
+        return sign_survivor_set(
+            round_id, alive, party_id=self.party_id, private_key_hex=self._key, attempt=attempt
+        )
 
 
 def verify_survivor_set(
@@ -267,26 +320,38 @@ def verify_survivor_set(
     alive: Sequence[str],
     *,
     signatures: Mapping[str, str],
-    keys: Mapping[str, str],
+    identity_trust: Mapping[str, str],
     threshold: int,
+    eligible: Iterable[str] | None = None,
+    attempt: int = 1,
 ) -> list[str]:
     """Return the parties that validly signed *this* survivor set; abort below threshold.
 
-    Each signature binds the exact ``alive`` set, so a coordinator cannot obtain
-    ``threshold`` signatures over two *different* sets — presenting a set the parties did
-    not sign makes their signatures fail to verify here. Fail-closed.
+    A signature counts only if its party is in ``alive``, in ``eligible`` (the session's
+    parties, when given) and in ``identity_trust``, and the Ed25519 signature verifies
+    against that public key. Everything else is ignored. Verification needs public keys
+    only, so the coordinator cannot mint signatures. Fail-closed.
     """
+    if not isinstance(threshold, int) or isinstance(threshold, bool) or threshold < 1:
+        raise ConsortiumError("survivor threshold must be an integer >= 1")
+    alive_set = {str(a) for a in alive}
+    allowed = alive_set if eligible is None else alive_set & {str(e) for e in eligible}
+    digest = survivor_set_hash(round_id, alive, attempt=attempt)
     good: list[str] = []
     for party_id, sig in signatures.items():
-        key = keys.get(party_id)
-        if key is None:
+        pid = str(party_id)
+        public = identity_trust.get(pid)
+        if pid not in allowed or public is None or not isinstance(sig, str):
             continue
-        expected = sign_survivor_set(round_id, alive, party_id=party_id, key=key)
-        if constant_time_equals(expected, sig):
-            good.append(party_id)
+        try:
+            ok = verify_ed25519(digest, pid, sig, public)
+        except ImportError as exc:  # pragma: no cover - crypto extra missing
+            raise ConsortiumError("survivor-set agreement needs presidio-evidence[crypto]") from exc
+        if ok:
+            good.append(pid)
     if len(good) < threshold:
         raise ConsortiumError(
-            f"survivor-set agreement failed for round '{round_id}': "
+            f"survivor-set agreement failed for round '{round_id}' attempt {attempt}: "
             f"{len(good)} valid signature(s) over the presented set, need {threshold}"
         )
     return sorted(good)
@@ -357,8 +422,9 @@ def run_secure_consortium_round(
     session: SecureAggregationSession,
     ledger: Ledger,
     survivor_signatures: Mapping[str, str],
-    survivor_keys: Mapping[str, str],
+    survivor_trust: Mapping[str, str],
     survivor_threshold: int,
+    survivor_attempt: int = 1,
     backend: ProofBackend | None = None,
     budgets: Mapping[Hashable, EpsilonBudget] | None = None,
     policy: MPAPolicy | None = None,
@@ -385,10 +451,15 @@ def run_secure_consortium_round(
     the signed ``D4`` evidence performed.
 
     If ``clip_bound`` is given (ADR-0003), each survivor must also supply a zero-knowledge
-    L∞ bounded-norm proof that every committed coordinate lies in ``[-B, B]`` with ``B``
-    the clip sensitivity (in fixed-point units); a contribution whose proof fails — or
-    whose update is out of bound — is rejected, so the per-client DP sensitivity is
-    *proven*, not assumed. The proven outcome is recorded on the ledger.
+    L∞ bounded-norm proof that every committed coordinate lies in ``[-B, B]``; a
+    contribution whose proof fails, or whose update is out of bound, is rejected. This
+    bounds poisoning but does not prove the accountant's L2 sensitivity (an L∞ bound
+    allows L2 norm up to ``B·sqrt(dim)``), so it leaves ``sensitivity_proven`` false.
+
+    If ``l2_bound`` is given (ADR-0005), each survivor proves ``‖x‖₂ ≤ l2_bound`` in zero
+    knowledge and ``sensitivity_proven`` is recorded true. That is a DP-sensitivity claim
+    only when ``l2_bound`` is the clip norm the noise was calibrated to; the ledger and the
+    signed D4 commitment record the proven norm and bound so an auditor can check this.
     """
     if session.group is None:
         raise ConsortiumError("run_secure_consortium_round requires a verifiable-mode session")
@@ -407,22 +478,37 @@ def run_secure_consortium_round(
         raise ConsortiumError("all surviving silos must share one delta for the round")
     delta = deltas.pop()
 
-    # 1. Survivor-set agreement (defeats coordinator equivocation), anchored to the ledger.
-    alive = [str(s) for s in survivors]
+    # 1. Survivor-set agreement (defeats coordinator equivocation), anchored to the ledger
+    # with the signatures themselves, so anyone holding the parties' public keys can check it.
+    alive = sorted(str(s) for s in survivors)
     signers = verify_survivor_set(
         round_id,
         alive,
         signatures=survivor_signatures,
-        keys=survivor_keys,
+        identity_trust=survivor_trust,
         threshold=survivor_threshold,
+        eligible=[str(p) for p in session.party_ids],
+        attempt=survivor_attempt,
     )
+    for prior in ledger.entries():  # self-consistency only: the coordinator holds this file
+        if (
+            prior.event == SURVIVOR_SET_EVENT
+            and prior.payload.get("round_id") == round_id
+            and prior.payload.get("attempt") == survivor_attempt
+        ):
+            raise ConsortiumError(
+                f"round '{round_id}' attempt {survivor_attempt} already has a survivor set"
+            )
     ledger.append(
         SURVIVOR_SET_EVENT,
         {
             "round_id": round_id,
-            "alive": sorted(alive),
+            "attempt": survivor_attempt,
+            "alive": alive,
+            "threshold": survivor_threshold,
             "signers": signers,
-            "set_hash": sha256_hex(survivor_set_message(round_id, alive)),
+            "signatures": {p: survivor_signatures[p] for p in signers},
+            "set_hash": survivor_set_hash(round_id, alive, attempt=survivor_attempt),
         },
     )
 
@@ -439,7 +525,11 @@ def run_secure_consortium_round(
 
     # 2b. Bounded-norm gate (ADR-0003): each input is ZK-proven within the clip sensitivity,
     # against the *same* commitments, so a poisoning (out-of-norm) contribution is rejected.
+    # ``sensitivity_proven`` means: every survivor's update is ZK-proven to have L2 norm at
+    # most ``l2_bound``. Only the L2 gate can say that; an L∞ bound B allows L2 norm up to
+    # B·sqrt(dim), so the L∞ gate bounds poisoning but proves no DP sensitivity.
     sensitivity_proven = False
+    proven_norm: str | None = None
     if clip_bound is not None:
         if clip_bound <= 0:
             raise ConsortiumError("clip_bound must be > 0")
@@ -455,9 +545,8 @@ def run_secure_consortium_round(
                 ) from exc
             if not backend.verify_bounded(party_commits[sid], norm_proof, bound=bound_fp):
                 raise PartyMisbehavior(sid, f"bounded-norm proof did not verify for '{sid}'")
-        sensitivity_proven = True
+        proven_norm = "linf"
 
-    proven_norm = "linf" if sensitivity_proven else None
     if l2_bound is not None:
         if l2_bound <= 0:
             raise ConsortiumError("l2_bound must be > 0")
@@ -500,8 +589,7 @@ def run_secure_consortium_round(
                     "round_id": round_id,
                     "mode": "secure",
                     "reason": verdict.reason,
-                    "score": encode_field("score", verdict.metrics.score),
-                    "canary_pass": verdict.metrics.canary_pass,
+                    **rejected_round_fields(verdict.metrics),
                     "n_survivors": len(survivors),
                 },
             )
@@ -563,6 +651,8 @@ def run_secure_consortium_round(
         n_parties=len(session.party_ids),
         n_survivors=len(survivors),
         parents=parent_list,
+        proven_norm=proven_norm,
+        norm_bound=(l2_bound if proven_norm == "l2" else clip_bound) if proven_norm else None,
     )
     commit_digest = sha256_hex(
         {
@@ -646,17 +736,24 @@ def run_consortium_round_with_retry(
     dp_results: Mapping[Hashable, DPResult],
     session: SecureAggregationSession,
     ledger: Ledger,
-    survivor_keys: Mapping[str, str],
+    survivor_signers: Mapping[str, Callable[..., str]],
+    survivor_trust: Mapping[str, str],
     survivor_threshold: int,
     max_retries: int | None = None,
     **round_kwargs: Any,
 ) -> RetryRoundResult:
     """Run the secure round, excluding attributable cheaters and retrying until it completes.
 
-    On a :class:`PartyMisbehavior`, the offending party is dropped and the round re-runs among
-    the remainder (honest parties re-sign the smaller survivor set). Bounded by ``max_retries``
-    (default: the party count). Fails closed if fewer than ``survivor_threshold`` honest parties
-    remain or the retry budget is exhausted.
+    ``survivor_signers`` maps each party to its own signer, typically a
+    :class:`SurvivorSetSigner`; in a deployment each entry is a request to that party. On a
+    :class:`PartyMisbehavior`, the offending party is excluded from the session and the
+    round re-runs among the remainder as the next ``attempt``, which every honest party
+    signs afresh. Bounded by ``max_retries`` (default: the party count). Fails closed if
+    fewer than ``survivor_threshold`` honest parties remain or the retry budget is exhausted.
+
+    Excluding a party and re-aggregating lets the coordinator compare two aggregates and
+    learn the excluded party's update. That party is an attributed cheater, so the leak is
+    limited to it; see ADR-0006 (exclude-and-retry).
     """
     remaining = dict(updates)
     excluded: list[Hashable] = []
@@ -667,9 +764,12 @@ def run_consortium_round_with_retry(
             raise ConsortiumError(
                 f"only {len(alive)} honest parties remain (< threshold {survivor_threshold})"
             )
-        signatures = {
-            p: sign_survivor_set(round_id, alive, party_id=p, key=survivor_keys[p]) for p in alive
-        }
+        signatures = {}
+        for p in alive:
+            signer = survivor_signers.get(p)
+            if signer is None:
+                continue  # a party without a signer cannot attest; it simply does not count
+            signatures[p] = signer(round_id, alive, attempt=attempt)
         try:
             result = run_secure_consortium_round(
                 round_id=round_id,
@@ -678,13 +778,15 @@ def run_consortium_round_with_retry(
                 session=session,
                 ledger=ledger,
                 survivor_signatures=signatures,
-                survivor_keys=survivor_keys,
+                survivor_trust=survivor_trust,
                 survivor_threshold=survivor_threshold,
+                survivor_attempt=attempt,
                 **round_kwargs,
             )
         except PartyMisbehavior as exc:
             culprit = exc.party_id
             excluded.append(culprit)
+            session.exclude(next(p for p in session.party_ids if str(p) == str(culprit)))
             remaining = {p: v for p, v in remaining.items() if str(p) != str(culprit)}
             continue
         return RetryRoundResult(result=result, excluded=excluded, attempts=attempt)
@@ -761,6 +863,10 @@ def run_god_consortium_round(
 
     scale = 1 << frac_bits
     n = len(parties)
+    dims = {len(updates[p]) for p in parties}
+    if len(dims) != 1 or 0 in dims:
+        raise ConsortiumError("all parties must submit non-empty updates of one dimension")
+    dim = dims.pop()
     dealt = {
         p: deal_input(
             [round(v * scale) for v in updates[p]],
@@ -822,7 +928,12 @@ def run_god_consortium_round(
 
     # Robust reconstruction delivers the sum despite a misbehaving minority (no coordinator).
     god = god_aggregate(
-        dealt, threshold=threshold, n_holders=n, group=group, holder_overrides=holder_overrides
+        dealt,
+        threshold=threshold,
+        n_holders=n,
+        dim=dim,
+        group=group,
+        holder_overrides=holder_overrides,
     )
     q = group.q
     aggregate = [(v - q if v > q // 2 else v) / scale for v in god.aggregate_field]
@@ -839,8 +950,7 @@ def run_god_consortium_round(
                     "round_id": round_id,
                     "mode": "god",
                     "reason": verdict.reason,
-                    "score": encode_field("score", verdict.metrics.score),
-                    "canary_pass": verdict.metrics.canary_pass,
+                    **rejected_round_fields(verdict.metrics),
                     "n_parties": n,
                     "n_included": len(god.included),
                 },
@@ -903,6 +1013,8 @@ def run_god_consortium_round(
         n_parties=n,
         n_survivors=len(god.included),
         parents=parent_list,
+        proven_norm=proven_norm,
+        norm_bound=(l2_bound if proven_norm == "l2" else clip_bound) if proven_norm else None,
     )
     entry = ledger.append(
         CONSORTIUM_EVENT,

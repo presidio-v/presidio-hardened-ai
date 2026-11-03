@@ -100,6 +100,10 @@ class RistrettoBulletproofsBackend:
 
     def prove_l2_bounded(self, values, blindings, *, bound: int, rng=None):
         m = bound * bound
+        if max(len(values), 1) * m >= _L:
+            raise ValueError("dim * bound^2 must fit the group order")
+        # |x_k| <= bound for every k (implied by the L2 bound): stops x_k^2 wrapping mod L.
+        coordinate_proof = self.prove_bounded(values, blindings, bound=bound, rng=rng)
         sq_commitments, sq_proofs, sq_blindings = [], [], []
         for x, rx in zip(values, blindings, strict=True):
             ry = secrets.randbelow(_L)
@@ -111,15 +115,23 @@ class RistrettoBulletproofsBackend:
         if s_val > m:
             raise ValueError("squared norm exceeds bound^2 (L2 norm out of bound)")
         s_blind = sum(sq_blindings) % _L
-        # S = Σ x_k^2 in [0, m]: the native symmetric range proof on [S] with bound m gives
-        # S in [-m, m]; S >= 0 (a real sum of squares) so this enforces S <= m.
+        # The native two-sided range proof on [S] with bound m gives S in [-m, m] mod L.
+        # With every |x_k| <= bound and dim * m < L, S is the integer sum of squares in
+        # [0, dim * m] (no wraparound), so this enforces S <= m.
         range_proof = self.prove_bounded([s_val], [s_blind], bound=m, rng=rng)
-        return (sq_commitments, sq_proofs, range_proof)
+        return (sq_commitments, sq_proofs, range_proof, coordinate_proof)
 
     def verify_l2_bounded(self, commitments: Sequence[bytes], proof, *, bound: int) -> bool:
         m = bound * bound
-        sq_commitments, sq_proofs, range_proof = proof
+        try:
+            sq_commitments, sq_proofs, range_proof, coordinate_proof = proof
+        except (TypeError, ValueError):
+            return False
+        if max(len(commitments), 1) * m >= _L:
+            return False
         if len(sq_commitments) != len(commitments) or len(sq_proofs) != len(commitments):
+            return False
+        if not self.verify_bounded(commitments, coordinate_proof, bound=bound):
             return False
         for c_x, c_y, sp in zip(commitments, sq_commitments, sq_proofs, strict=True):
             if not self._verify_square(c_x, c_y, sp):

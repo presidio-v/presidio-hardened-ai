@@ -23,8 +23,11 @@ SECURITY.md, not claimed away.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+
+from presidio_ai.numeric import encode_field
 
 
 @dataclass(frozen=True)
@@ -57,15 +60,36 @@ class RobustnessVerdict:
     reason: str
 
 
+def score_is_finite(score: object) -> bool:
+    """True for an int or float (not bool) that is finite."""
+    return isinstance(score, int | float) and not isinstance(score, bool) and math.isfinite(score)
+
+
+def rejected_round_fields(metrics: RobustnessMetrics) -> dict:
+    """Ledger fields for a rejected round; a non-finite score is flagged, not encoded."""
+    if score_is_finite(metrics.score):
+        return {
+            "score": encode_field("score", float(metrics.score)),
+            "canary_pass": metrics.canary_pass is True,
+        }
+    return {"score": None, "score_non_finite": True, "canary_pass": metrics.canary_pass is True}
+
+
 def evaluate(
     candidate: Sequence[float],
     policy: RobustnessPolicy,
     *,
     previous_score: float | None = None,
 ) -> RobustnessVerdict:
-    """Score a candidate aggregate and decide accept/reject (fail-closed on a failed canary)."""
+    """Score a candidate aggregate and decide accept/reject (fail-closed).
+
+    Rejects a score that is not a finite real number (NaN would pass both ``<`` and ``>``
+    comparisons), and, when canaries are required, any ``canary_pass`` other than ``True``.
+    """
     metrics = policy.validate(candidate)
-    if policy.require_canary and not metrics.canary_pass:
+    if not score_is_finite(metrics.score):
+        return RobustnessVerdict(False, metrics, "validation score is not a finite number")
+    if policy.require_canary and metrics.canary_pass is not True:
         return RobustnessVerdict(False, metrics, "canary/trigger test failed (possible backdoor)")
     if metrics.score < policy.min_score:
         return RobustnessVerdict(

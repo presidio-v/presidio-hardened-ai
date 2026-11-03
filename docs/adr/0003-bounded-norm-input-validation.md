@@ -26,6 +26,20 @@ robustness scope (an ML-robustness problem).
 > compression remain the perf follow-up (a different libsodium build or a Rust-FFI
 > dependency behind the reserved `[zk]` extra).
 
+## Amendment (2026-11-03, v0.32.0)
+
+A tool-assisted pre-publication security review found two problems with this ADR as built:
+
+- **One-sided L∞ check.** The verifier range-proved only `u + B ∈ [0, 2^bits)`. With
+  `bits = bitlen(2B)` that admits `u` up to `2^bits − 1 − B`, about `3B` when `2B` is a
+  power of two. The proof now also range-proves `B − u` against `g^B · C^{-1}` under a
+  separate transcript tag; the two openings sum to `2B` and `2^{bits+1} < q`, which forces
+  `u ∈ [−B, B]`.
+- **Sensitivity overclaim.** An L∞ bound does not bound the L2 sensitivity the accountant
+  assumes (up to `B·sqrt(dim)`). The L∞ gate now records `sensitivity_proven = false`; only
+  the L2 gate (ADR-0005) records `true`. The proven norm and bound are part of the signed D4
+  commitment (`proven_norm`, `norm_bound`), which closes action item 6 as stated.
+
 ## Context
 
 ADR-0001 hid individual updates; ADR-0002 stopped a *deviating* coordinator or party from

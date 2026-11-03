@@ -247,25 +247,33 @@ def consortium_commitment(
     n_parties: int,
     n_survivors: int,
     parents: Iterable[str] | None = None,
+    proven_norm: str | None = None,
+    norm_bound: float | None = None,
 ) -> dict[str, object]:
     """Canonical, content-free commitment for a secure-aggregation round.
 
     Commits to the *aggregate* (the exact field-domain sum), the round's worst-case
     per-party ``(epsilon, delta)`` as decimal strings (schema ``consortium-round@1``),
-    the participation counts, and any ADR-0002 ``parents`` (omitted when empty) —
-    never an individual update.
+    the participation counts, any ADR-0002 ``parents`` (omitted when empty) and, when a
+    bounded-norm gate ran, the proven norm (``"linf"`` or ``"l2"``) and its bound (omitted
+    otherwise) — never an individual update.
     """
-    return with_parents(
-        {
-            "round_id": round_id,
-            "aggregate_sha256": sha256_hex({"agg": list(aggregate_field)}),
-            "max_epsilon": encode_field("max_epsilon", max_epsilon),
-            "delta": encode_field("delta", delta),
-            "n_parties": n_parties,
-            "n_survivors": n_survivors,
-        },
-        parents,
-    )
+    body: dict[str, object] = {
+        "round_id": round_id,
+        "aggregate_sha256": sha256_hex({"agg": list(aggregate_field)}),
+        "max_epsilon": encode_field("max_epsilon", max_epsilon),
+        "delta": encode_field("delta", delta),
+        "n_parties": n_parties,
+        "n_survivors": n_survivors,
+    }
+    if (proven_norm is None) != (norm_bound is None):
+        raise ValueError("proven_norm and norm_bound go together")
+    if proven_norm is not None:
+        if proven_norm not in ("linf", "l2"):
+            raise ValueError(f"unknown proven_norm {proven_norm!r}")
+        body["proven_norm"] = proven_norm
+        body["norm_bound"] = encode_field("norm_bound", norm_bound)
+    return with_parents(body, parents)
 
 
 def build_consortium_evidence(

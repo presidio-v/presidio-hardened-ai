@@ -4,13 +4,26 @@ name: ZK CI
 # runs the pure-Python MODP fallback; this lane builds the Rust/dalek native wheel from
 # rust/ via maturin and cross-validates it against MODP on decision equivalence.
 #
-# MANUAL TRIGGER (workflow_dispatch) ONLY — deliberately not on push/PR. The native crate
-# requires a Rust toolchain that the development environment lacks, so it has not yet been
-# compiled/validated; gating every push on it produced spurious red CI. The security
-# guarantee is fully exercised by the pure-Python MODP backend in the default lane (the [zk]
-# extra is an accelerator, not a requirement). Run this lane on demand from the Actions tab
-# on a Rust-equipped runner; once it builds green, promote it back to push/pull_request.
+# Runs on pull requests and pushes that touch the native crate or the proof code, and on
+# demand. Until 0.32.0 this lane was manual-only because the crate had never compiled
+# (bulletproofs 4.0 is built on curve25519-dalek-ng, not the curve25519-dalek 4 this crate
+# uses); bulletproofs 5.0 fixes that. The pure-Python MODP backend in the default lane
+# remains the reference; this lane checks that the native backend reaches the same
+# decisions, including the 0.32.0 two-sided L∞ and padding regressions.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "rust/**"
+      - "src/presidio_ai/fl/**"
+      - "tests/test_ristretto_backend.py"
+      - "tests/test_proof_backend.py"
+      - ".github/workflows/ci-zk.yml"
+  push:
+    branches: [main]
+    paths:
+      - "rust/**"
+      - "src/presidio_ai/fl/**"
   workflow_dispatch: {}
 
 permissions:
@@ -34,7 +47,7 @@ jobs:
       - name: Build + install the native backend (maturin)
         run: |
           python -m pip install --upgrade pip maturin
-          maturin build --release -m rust/Cargo.toml --out dist
+          maturin build --release --locked -m rust/Cargo.toml --out dist
           pip install dist/*.whl
 
       - name: Install the package (dev)
@@ -47,6 +60,9 @@ jobs:
 
       - name: Run native backend + decision-equivalence tests
         run: pytest tests/test_ristretto_backend.py -q
+
+      - name: Run the consortium and GOD suites on the native backend
+        run: pytest tests/test_secure_consortium.py tests/test_god.py tests/test_zk.py -q
 
       - name: Confirm the native backend is auto-selected
         run: python -c "from presidio_ai.fl.proof_backend import backend_name; assert backend_name()=='ristretto255-bulletproofs', backend_name(); print('native backend active')"

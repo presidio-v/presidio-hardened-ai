@@ -140,6 +140,59 @@ def test_bounded_norm_length_mismatch_fails():
     commitments = _commit_vec(values, randomness)
     proof = prove_bounded(values, randomness, bound=10, group=G, rng=rng)
     assert not verify_bounded(commitments[:2], proof, group=G)
+    assert not verify_bounded(
+        commitments, replace(proof, upper_proofs=proof.upper_proofs[:2]), group=G
+    )
+
+
+@pytest.mark.parametrize(
+    ("bound", "u"),
+    [(8, 9), (8, 16), (8, 23), (5, 6), (5, 10)],
+)
+def test_bounded_norm_rejects_forged_lower_side_only(bound, u):
+    """Audit 2026-11-03: a one-sided proof admitted u up to 2^bits - 1 - bound.
+
+    The attacker range-proves u + bound directly (skipping prove_bounded's witness check)
+    and pairs it with any upper-side proof it can produce; neither the one-sided form nor
+    a borrowed upper proof may verify.
+    """
+    rng = _rng(100 + u)
+    bits = (2 * bound).bit_length()
+    r = rng.randrange(G.q)
+    commitment = pedersen_commit(u, r, G)
+    forged_lower = prove_range(u + bound, r, bits=bits, group=G, rng=rng)
+    # bound - u is negative, so no honest upper-side witness exists in [0, 2^bits).
+    with pytest.raises(ProofError):
+        prove_range((bound - u) % G.q, (-r) % G.q, bits=bits, group=G, rng=rng)
+    # Borrow the upper proof of an in-bound value under the same blinding.
+    donor = prove_bounded([bound], [r], bound=bound, group=G, rng=rng)
+    forged = replace(donor, coordinate_proofs=[forged_lower])
+    assert not verify_bounded([commitment], forged, group=G)
+    assert not verify_bounded([commitment], replace(forged, upper_proofs=[]), group=G)
+
+
+def test_bounded_norm_edges_verify_and_one_past_raises():
+    rng = _rng(12)
+    for bound in (1, 5, 8, 100):
+        values = [-bound, bound]
+        randomness = [rng.randrange(G.q) for _ in values]
+        proof = prove_bounded(values, randomness, bound=bound, group=G, rng=rng)
+        assert verify_bounded(_commit_vec(values, randomness), proof, group=G)
+        for bad in (-bound - 1, bound + 1):
+            with pytest.raises(ProofError, match="outside"):
+                prove_bounded([bad], [rng.randrange(G.q)], bound=bound, group=G)
+
+
+def test_bounded_norm_upper_proofs_are_domain_separated():
+    """Swapping the lower- and upper-side proofs must not verify (distinct transcripts)."""
+    rng = _rng(13)
+    r = rng.randrange(G.q)
+    proof = prove_bounded([0], [r], bound=8, group=G, rng=rng)  # u+B == B-u == 8
+    swapped = replace(
+        proof, coordinate_proofs=proof.upper_proofs, upper_proofs=proof.coordinate_proofs
+    )
+    assert verify_bounded(_commit_vec([0], [r]), proof, group=G)
+    assert not verify_bounded(_commit_vec([0], [r]), swapped, group=G)
 
 
 # --- L2 bounded-norm: square proof + squared-norm range proof (ADR-0005) ---
@@ -201,6 +254,77 @@ def test_l2_bound_binding_and_wrong_commitments():
     # wrong commitments rejected
     wrong = _commit([v + 1 for v in values], randomness)
     assert not verify_l2_bounded(wrong, proof, bound=bound, group=G)
+
+
+def _sqrt_mod_q(a):
+    """Square root modulo the test group order (Tonelli-Shanks), or None for a non-residue."""
+    q = G.q
+    a %= q
+    if pow(a, (q - 1) // 2, q) != 1:
+        return None
+    s, odd = 0, q - 1
+    while odd % 2 == 0:
+        odd //= 2
+        s += 1
+    z = 2
+    while pow(z, (q - 1) // 2, q) != q - 1:
+        z += 1
+    m, c, t, r = s, pow(z, odd, q), pow(a, odd, q), pow(a, (odd + 1) // 2, q)
+    while t != 1:
+        i, tt = 0, t
+        while tt != 1:
+            tt = tt * tt % q
+            i += 1
+        b = pow(c, 1 << (m - i - 1), q)
+        m, c, t, r = i, b * b % q, t * b * b % q, r * b % q
+    return r
+
+
+def test_l2_rejects_modular_wraparound_forgery():
+    """Review 2026-11-03: squares summed modulo q let a field element cancel a large one.
+
+    x1 is 100x the bound; x2 is chosen so x1² + x2² ≡ small (mod q). Without the
+    per-coordinate bound the squared-norm range proofs alone accepted this vector.
+    """
+    from presidio_ai.fl.zk import (
+        L2BoundedProof,
+        _challenge,
+        prove_square,
+    )
+
+    rng = _rng(24)
+    bound, q = 10, G.q
+    x1 = 1000
+    x2 = next(r for t in range(101) if (r := _sqrt_mod_q(t - x1 * x1)) is not None)
+    values = [x1, x2]
+    blinds = [rng.randrange(q) for _ in values]
+    commits = _commit(values, blinds)
+    # Forge the pre-fix proof parts directly (the honest prover now refuses).
+    with pytest.raises(ProofError):
+        prove_l2_bounded(values, blinds, bound=bound, group=G, rng=rng)
+    prefix = _challenge(G, bound, *commits)
+    sq_c, sq_p, sq_b = [], [], []
+    for v, r in zip(values, blinds, strict=True):
+        rb = rng.randrange(q)
+        c_y, sp = prove_square(v, r, rb, group=G, prefix=prefix, rng=rng)
+        sq_c.append(c_y)
+        sq_p.append(sp)
+        sq_b.append(rb)
+    s_val = sum(v * v for v in values) % q
+    assert s_val <= bound * bound  # the wraparound
+    s_blind = sum(sq_b) % q
+    bits = (bound * bound).bit_length()
+    donor = prove_l2_bounded([0, 0], [0, 0], bound=bound, group=G, rng=rng)
+    forged = L2BoundedProof(
+        bound=bound,
+        bits=bits,
+        square_commitments=sq_c,
+        square_proofs=sq_p,
+        range_sum=prove_range(s_val, s_blind, bits=bits, group=G, rng=rng),
+        range_diff=prove_range(bound * bound - s_val, (-s_blind) % q, bits=bits, group=G, rng=rng),
+        coordinate_bound=donor.coordinate_bound,
+    )
+    assert not verify_l2_bounded(commits, forged, bound=bound, group=G)
 
 
 # --- cross-commitment equality (ADR-0006 item 4) --------------------------

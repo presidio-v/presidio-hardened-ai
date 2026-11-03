@@ -32,9 +32,14 @@ patch within 30 days of a confirmed vulnerability.
 `presidio-hardened-ai` implements the following controls in P1 (v0.1.0):
 
 - **Tamper-evident ledger** — every entry is HMAC-SHA256-chained to its predecessor.
-  Any insertion, deletion, reorder, or in-place edit breaks the chain and is detected
-  by `pai verify` (timing-safe MAC comparison). A keyed MAC is mandatory; there is no
-  unkeyed mode.
+  Anyone without the key who inserts, reorders, edits or deletes an interior entry
+  breaks the chain, and `pai verify` detects it (timing-safe MAC comparison). A keyed
+  MAC is mandatory; there is no unkeyed mode. **Limit:** dropping trailing entries or
+  the whole file leaves a valid shorter chain. It is detected only against an anchor
+  known from elsewhere: `pai verify --expect-entry SEQ:HEX` (for example the O5 head of
+  a verified signed export) or `--min-entries N`, the live `Ledger` object, or
+  `EpsilonBudget(anchor=…)`. A missing ledger fails `pai verify` (since 0.32.0). The key
+  holder can rewrite the whole chain; only signed exports held by others constrain that.
 - **Commitments only, never content** — the ledger, the exported evidence file, and
   the security log carry hashes, counts, and structural metadata exclusively. Raw PII
   and organisational data never enter any persisted artifact. The ingest path enforces
@@ -59,8 +64,11 @@ patch within 30 days of a confirmed vulnerability.
   step count are recorded to the ledger by design — they are accounting facts required to
   make the guarantee auditable, and contain no organisational data.
 - **Tamper-evident budget.** The org ε budget is re-derived from the MAC-verified ledger
-  chain; a tampered ledger fails closed (no spend figure is returned). An over-budget
-  charge is rejected and recorded nowhere.
+  chain; a tampered ledger fails closed (no spend figure is returned). Since 0.32.0 the
+  chain is also checked against the `Ledger` object's own tail, so truncating or deleting
+  the ledger while the budget is in use raises instead of refunding spend; a fresh
+  process needs an external anchor (`EpsilonBudget(anchor=…)`) for the same guarantee.
+  An over-budget charge is rejected and recorded nowhere.
 - **Sound accounting.** Integer-order subsampled-Gaussian RDP (Mironov–Talwar–Zhang 2019)
   composed over steps, converted via Mironov (2017) — a sound upper bound on ε.
 
@@ -178,8 +186,12 @@ threshold — learns only the aggregate, never an individual party's update. Con
   bound — never an individual update. Commitments-only, like every other ledger event.
 - **Transport** (`fl.transport`, `[mpc]` extra) — the masked vectors are exactly what the
   coordinator is permitted to see; the wire decoder validates party id, dimension, and that
-  every element is a canonical field element, fail-closed. TLS and bind address are
-  deployment configuration.
+  every element is a canonical field element, fail-closed. Since 0.32.0 every message is
+  Ed25519-signed with the sender's identity key, and `RoundCoordinator` (served by
+  `serve()`) accepts one submission per party, aggregates exactly once and serves only that
+  cached result, so no caller can obtain two aggregates over different survivor sets. The
+  session itself pins the survivor set at the first aggregation. TLS, bind address and rate
+  limiting are deployment configuration.
 
 **Threat model (v1, ADR-0001).** Honest-but-curious coordinator + ≤`t` colluding parties.
 
@@ -189,11 +201,17 @@ ADR-0002 extends the model to a **deviating** coordinator or colluding parties, 
 **security-with-abort**. Three composable, ledger-anchored mechanisms, each closing a named
 attack:
 
-- **Signed survivor-set agreement** (`sign_survivor_set`/`verify_survivor_set`) — before any
-  dropout-recovery share is revealed, the coordinator must present `≥t` party signatures
-  over the **exact** survivor set, recorded on the ledger. Because each signature binds the
-  specific alive-set, a coordinator cannot obtain `t` signatures over two different sets, so
-  it cannot lie about who dropped to **unmask** a live party (the Bonawitz attack). Fail-closed.
+- **Signed survivor-set agreement** (`SurvivorSetSigner`/`verify_survivor_set`) — before any
+  dropout-recovery share is revealed, the coordinator must present `≥t` **Ed25519** party
+  signatures over the exact survivor set and round attempt, made with each party's identity
+  key and checked against public keys only. Only parties in the alive set and the session
+  count. The signatures are stored in the ledger entry, so anyone with the public keys can
+  check them. An honest party's `SurvivorSetSigner` signs at most one set per round attempt;
+  with an honest majority the coordinator therefore cannot collect `t` signatures on two
+  different sets, so it cannot lie about who dropped to **unmask** a live party (the
+  Bonawitz attack). Fail-closed. Until 0.32.0 these were HMACs under keys the coordinator
+  had to hold, so they did not bind the coordinator. **Limit:** the coordinator holds the
+  ledger, so equivocation is provable only by someone who obtains both signed sets.
 - **Verifiable secret sharing** (Feldman VSS, `fl.commit`) — mask-seed shares carry public
   `g^{a_i}` coefficient commitments; a shareholder rejects an inconsistent share, so a
   malicious dealer cannot corrupt reconstruction. Verified during reconstruction in
@@ -224,19 +242,29 @@ is within a norm bound, without revealing it:
 - **Transparent ZK range proof** (Pedersen bit-decomposition over the prime-order MODP-2048
   group; no trusted setup): a per-bit Chaum–Pedersen OR-proof, bound to the commitment by
   `Π C_i^{2^i} == C`, with a Fiat–Shamir transcript binding the commitment, the bound, and
-  all bit commitments (no weak-FS). An **L∞ bounded-norm** proof extends it to a vector.
+  all bit commitments (no weak-FS). An **L∞ bounded-norm** proof extends it to a vector by
+  range-proving both `u_k + B` and `B − u_k` for every coordinate (two-sided since 0.32.0;
+  before, only `u_k + B` was proven, which admitted coordinates up to about `3B`).
 - **Admission gate.** `run_secure_consortium_round(clip_bound=…)` verifies each contribution's
   bounded-norm proof against the **same** input commitments before aggregation; a poisoning
-  update is rejected and the proven outcome is recorded on the ledger (`sensitivity_proven`).
-- **Sensitivity becomes proven, not assumed.** The bound is the DP clip sensitivity, so the
-  per-client `(ε, δ)` the accountant reports holds even against a malicious client — closing
-  the gap between assumed and enforced clipping.
+  update is rejected and the proven norm and bound are recorded on the ledger and in the
+  signed D4 commitment (`proven_norm`, `norm_bound`).
+- **Sensitivity is proven only by the L2 gate.** An L∞ bound `B` allows an L2 norm of up to
+  `B·sqrt(dim)`, so the L∞ gate bounds poisoning but records `sensitivity_proven = false`.
+  The L2 gate (`l2_bound=…`, ADR-0005) records `sensitivity_proven = true`; that supports
+  the accountant's `(ε, δ)` against a malicious client only when `l2_bound` is the clip
+  norm the noise was calibrated to, which an auditor checks from the recorded bound. (Until
+  0.32.0 the L∞ gate also recorded `true`.)
+- **L2 proof soundness.** The L2 proof also proves `|x_k| ≤ B` for every coordinate and
+  requires `dim·B² < q`, so no square can wrap modulo the group order. Without it, a large
+  coordinate could be cancelled by another whose square is `≡ −x² + small (mod q)` (fixed in
+  0.32.0).
 
 **Scope / deviation.** ADR-0003 recommended Bulletproofs over Ristretto255; neither is
 available in this environment (no Ristretto255 in the libsodium build; no vetted Python
 Bulletproofs library). v1 therefore uses a textbook, fully-tested range proof over the
 already-vetted MODP-2048 group (same ZK guarantee; `O(n)` proof rather than `O(log n)`). The
-**Ristretto255 + Bulletproofs** performance backend now exists behind the `[zk]` extra (ADR-0004): a pluggable `ProofBackend` selects the audited dalek-based native backend when its wheel is installed and otherwise falls back to the pure-Python MODP proofs. The guarantee is identical on both paths; CI cross-validates *decision equivalence*. **L2** bounded-norm proofs (the exact DP clip norm, via a square-correctness Σ-proof + a squared-norm range proof) ship on both backends (ADR-0005); the consortium gate enforces `‖x‖₂ ≤ C` and records the proven norm. *Semantic* robustness against in-norm backdoors remains future work.
+**Ristretto255 + Bulletproofs** performance backend exists behind the `[zk]` extra (ADR-0004): a pluggable `ProofBackend` selects the dalek-based native backend when its wheel is installed and otherwise falls back to the pure-Python MODP proofs. **Before 0.32.0 the native crate did not compile** (its `bulletproofs 4.0` dependency is built on `curve25519-dalek-ng`), had the same one-sided L∞ range check, and padded differently on the prover and verifier sides; 0.32.0 moves to `bulletproofs 5.0` and `pyo3 0.29`, makes the check two-sided, binds the bound and length into the transcript, and runs the `ci-zk` lane on pull requests, where it cross-validates *decision equivalence* with the MODP backend. **L2** bounded-norm proofs (the exact DP clip norm, via a square-correctness Σ-proof + a squared-norm range proof) ship on both backends (ADR-0005); the consortium gate enforces `‖x‖₂ ≤ C` and records the proven norm. *Semantic* robustness against in-norm backdoors remains future work.
 
 ## Differential-Privacy Accounting (P2, v0.15.0)
 
@@ -257,11 +285,15 @@ actively misbehave, so one bad member cannot deny service to the consortium.
   shares its update; shares add locally (the sum of shares is a sharing of the sum); the
   aggregate is **robustly reconstructed** (`robust_reconstruct`): verify each share against
   the homomorphically-combined commitments, discard the invalid, interpolate from a valid
-  quorum. A **malicious dealer** is excluded; a **malicious holder** is discarded; and there
-  is **no coordinator** to halt the round.
+  quorum. A **malicious dealer** is excluded, including one whose input is malformed for the
+  round (wrong dimension or degree, missing holders, non-group commitments; checked since
+  0.32.0, before which such a dealer could abort the round or corrupt the sum); a
+  **malicious holder** is discarded; and there is **no coordinator** to halt the round.
 - **Exclude-and-retry interim** (`run_consortium_round_with_retry`) — for deployments not yet
   on the GOD path, the ADR-0002 round plus attributable cheater exclusion gives liveness under
-  bounded cheating with no new crypto.
+  bounded cheating with no new crypto. Each retry is a new signed round attempt. **Limit:**
+  comparing the aggregate before and after an exclusion reveals the excluded party's update;
+  that party is a cryptographically attributed cheater, so the leak is limited to it.
 
 **Trust premise.** GOD is achievable **only under an honest majority** (`n ≥ 2t+1`); a dishonest
 majority can always withhold the output. Adopting GOD therefore means the consortium accepts a
@@ -281,7 +313,8 @@ posture** (none of which sees an individual update), not as detection-and-attrib
   attack attributable and forensically traceable.
 - **Aggregate validation gate + rollback** (`fl.robustness`) — each round's candidate aggregate
   is scored against a consortium-supplied clean validation set + a canary/trigger suite; a round
-  that fails (low score, regression, or a triggered canary) is **rolled back** — its aggregate is
+  that fails (low score, regression, a non-finite score, or a canary result other than `True`)
+  is **rolled back** — its aggregate is
   not applied, **no DP budget is charged**, no evidence is emitted — and a flag is recorded on the
   ledger.
 

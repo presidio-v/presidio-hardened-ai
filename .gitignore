@@ -29,3 +29,6 @@ htmlcov/
 coverage.xml
 # Committed test fixtures (synthetic ledgers produced by released code for legacy-verify tests).
 !tests/fixtures/**/*.jsonl
+
+# Rust build output
+rust/target/
