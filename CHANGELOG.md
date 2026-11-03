@@ -10,6 +10,26 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
+## [0.32.1] — 2026-11-03
+
+### Security
+- **`pai dp-train` and `pai fl-train` drew DP noise from a seeded PRNG** (`--seed`,
+  default 0), so the noise was predictable and the reported ε did not hold against anyone
+  who knew or guessed the seed. Both commands now draw noise from a CSPRNG unless `--seed`
+  is given explicitly; a seeded run is a reproducible test run and warns that it is not
+  private. `federated_train` gains `secure_rng`. Runs made with 0.32.0 or earlier through
+  these commands should be treated as not differentially private.
+- **The secure and GOD consortium rounds authorized after aggregating.**
+  `run_secure_consortium_round` and `run_god_consortium_round` computed the aggregate
+  before n-of-m MPA authorization, and a round rejected by the robustness gate returned
+  its aggregate without authorization having run. Both now authorize on the worst-case
+  ε first (the GOD round over every submitting party, a superset of those it can
+  include), so an unauthorized round anchors, deals and aggregates nothing.
+
+### Changed
+- `pai dp-train` and `pai fl-train` are non-deterministic by default; pass `--seed` for a
+  reproducible test run.
+
 ## [0.32.0] — 2026-11-03
 
 First public release, and the first published to PyPI. Versions up to 0.31.0 were

@@ -533,3 +533,36 @@ def test_retry_records_one_survivor_set_per_attempt(tmp_path):
         (1, ["bankA", "bankB", "bankC", "bankD"]),
         (2, ["bankA", "bankB", "bankD"]),
     ]
+
+
+# --- authorization before computation -------------------------------------
+
+
+def test_unauthorized_secure_round_computes_nothing(tmp_path, monkeypatch):
+    from presidio_ai.dp.authorization import MPADenied, MPAPolicy
+
+    parties = ["A", "B", "C"]
+    sess = _vsession(parties, 2)
+    skeys, strust = _identities(parties)
+
+    def _no_aggregate(*_a, **_k):
+        raise AssertionError("aggregated before authorization")
+
+    monkeypatch.setattr(sess, "aggregate_field", _no_aggregate)
+    ledger = Ledger(tmp_path / "r.jsonl", key=KEY)
+    with pytest.raises(MPADenied):
+        run_secure_consortium_round(
+            round_id="r-unauth",
+            updates=_updates(parties, 2),
+            dp_results=_dp(parties),
+            session=sess,
+            ledger=ledger,
+            survivor_signatures=_signed_alive(parties, "r-unauth", skeys),
+            survivor_trust=strust,
+            survivor_threshold=2,
+            backend=BACKEND,
+            policy=MPAPolicy(threshold=1, min_epsilon=0.0, approvers=("cro",)),
+            rng=random.Random(11),  # noqa: S311 - test fixture
+        )
+    # Nothing was anchored either: no survivor-set entry precedes the refusal.
+    assert verify_chain(ledger.path, key=KEY, missing_ok=True) == []

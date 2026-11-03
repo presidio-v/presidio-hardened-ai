@@ -141,8 +141,10 @@ changing the `EvidenceRef` shape, which matches the
 ### DP randomness & Opacus backend (v0.6.0)
 
 - **CSPRNG noise option.** The reference trainer's `secure_rng=True` draws DP noise from an
-  `os.urandom`-backed CSPRNG (`random.SystemRandom`), closing the earlier seedable-PRNG
-  caveat; the default remains a seeded PRNG for reproducible testing only.
+  `os.urandom`-backed CSPRNG (`random.SystemRandom`). The library default remains a seeded
+  PRNG for reproducible testing only. Since 0.32.1 `pai dp-train` and `pai fl-train` draw
+  noise from the CSPRNG unless `--seed` is given; a seeded run warns that its noise is
+  predictable and its ε does not hold against anyone who knows the seed.
 - **Opacus backend** uses `PrivacyEngine(secure_mode=...)` and is verified in a dedicated
   torch CI lane that cross-validates Opacus' privacy accountant against this suite's
   `dpsgd_epsilon` — so the accounting cannot silently diverge between backends.
@@ -180,7 +182,9 @@ threshold — learns only the aggregate, never an individual party's update. Con
   store; an unsigned, mis-signed, or unknown key is rejected, defeating a coordinator that
   tries to MITM the exchange by substituting its own DH key. Seeds are drawn from a CSPRNG.
 - **Governed rounds** (`fl.consortium`) — a round runs only after n-of-m MPA authorization
-  (gated on the worst-case per-party ε, recorded to the ledger first); each silo's (ε, δ)
+  (gated on the worst-case per-party ε, recorded to the ledger first). Since 0.32.1 this
+  holds for all three round types: the secure and GOD rounds authorize before any
+  survivor-set anchoring, dealing or aggregation; each silo's (ε, δ)
   is charged to its own tamper-evident budget; and exactly one signed **D4** EvidenceRef is
   emitted, committing to the **aggregate only** (its field-domain hash) plus the worst-case
   bound — never an individual update. Commitments-only, like every other ledger event.

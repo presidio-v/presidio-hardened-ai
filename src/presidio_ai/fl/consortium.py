@@ -414,6 +414,42 @@ class SecureConsortiumResult:
     robustness: RobustnessVerdict | None = None
 
 
+def _authorize_round(
+    dp_results: Mapping[Hashable, DPResult],
+    parties: Sequence[Hashable],
+    *,
+    round_id: str,
+    policy: MPAPolicy | None,
+    approvals: Mapping[str, str] | None,
+    approver_keys: Mapping[str, str] | None,
+    ledger: Ledger,
+) -> tuple[float, list[str]]:
+    """Run n-of-m MPA on the worst-case ε of ``parties``; record it. Raises if unauthorized."""
+    gating = max((dp_results[p] for p in parties), key=lambda r: r.epsilon)
+    approvers: list[str] = []
+    if requires_authorization(policy, gating.epsilon):
+        req_hash, approved, req_canon = authorize_request(
+            gating,
+            job_id=f"consortium/{round_id}",
+            policy=policy,
+            approvals=approvals or {},
+            approver_keys=approver_keys or {},
+        )
+        approvers = list(approved)
+        ledger.append(
+            AUTHORIZED_EVENT,
+            authorization_payload(
+                job_id=f"consortium/{round_id}",
+                epsilon=gating.epsilon,
+                threshold=policy.threshold,
+                approvers=approvers,
+                request_hash=req_hash,
+                request_canon=req_canon,
+            ),
+        )
+    return gating.epsilon, approvers
+
+
 def run_secure_consortium_round(
     *,
     round_id: str,
@@ -447,8 +483,9 @@ def run_secure_consortium_round(
     ``survivor_threshold`` signatures and anchored to the ledger; (2) inputs are
     Pedersen-committed; (3) the verifiable-mode session aggregates (Feldman-VSS-checked
     reconstruction); (4) the aggregate is checked homomorphically against the commitments —
-    only then are (5) MPA authorization, per-silo DP charges, the round ledger entry, and
-    the signed ``D4`` evidence performed.
+    only then are (5) per-silo DP charges, the round ledger entry, and the signed ``D4``
+    evidence performed. n-of-m MPA authorization on the worst-case ε runs first (0), before
+    any of these steps, so an unauthorized round computes nothing.
 
     If ``clip_bound`` is given (ADR-0003), each survivor must also supply a zero-knowledge
     L∞ bounded-norm proof that every committed coordinate lies in ``[-B, B]``; a
@@ -477,6 +514,19 @@ def run_secure_consortium_round(
     if len(deltas) != 1:
         raise ConsortiumError("all surviving silos must share one delta for the round")
     delta = deltas.pop()
+
+    # 0. Authorization first: n-of-m MPA on the worst-case ε over the survivors, before any
+    # survivor-set anchoring, recovery share or aggregate exists. An unauthorized round
+    # raises here and computes nothing.
+    max_epsilon, approvers = _authorize_round(
+        dp_results,
+        survivors,
+        round_id=round_id,
+        policy=policy,
+        approvals=approvals,
+        approver_keys=approver_keys,
+        ledger=ledger,
+    )
 
     # 1. Survivor-set agreement (defeats coordinator equivocation), anchored to the ledger
     # with the signatures themselves, so anyone holding the parties' public keys can check it.
@@ -609,30 +659,7 @@ def run_secure_consortium_round(
                 robustness=verdict,
             )
 
-    # 5. Governance: worst-case ε gates MPA; per-silo charge; one signed D4; commitments-only entry.
-    gating = max((dp_results[s] for s in survivors), key=lambda r: r.epsilon)
-    max_epsilon = gating.epsilon
-    approvers: list[str] = []
-    if requires_authorization(policy, max_epsilon):
-        _req_hash, approved, _req_canon = authorize_request(
-            gating,
-            job_id=f"consortium/{round_id}",
-            policy=policy,
-            approvals=approvals or {},
-            approver_keys=approver_keys or {},
-        )
-        approvers = list(approved)
-        ledger.append(
-            AUTHORIZED_EVENT,
-            authorization_payload(
-                job_id=f"consortium/{round_id}",
-                epsilon=max_epsilon,
-                threshold=policy.threshold,
-                approvers=approvers,
-                request_hash=_req_hash,
-                request_canon=_req_canon,
-            ),
-        )
+    # 5. Governance (authorized in step 0): per-silo charge; one signed D4; commitments-only entry.
 
     per_silo_charge: dict[str, ChargeResult] = {}
     if budgets is not None:
@@ -861,6 +888,19 @@ def run_god_consortium_round(
         raise ConsortiumError("all parties must share one delta for the round")
     delta = deltas.pop()
 
+    # Authorization first: n-of-m MPA on the worst-case ε over every submitting party (a
+    # superset of the parties GOD can include, so the bound is conservative), before any
+    # input is dealt or aggregated. An unauthorized round raises here and computes nothing.
+    _, approvers = _authorize_round(
+        dp_results,
+        parties,
+        round_id=round_id,
+        policy=policy,
+        approvals=approvals,
+        approver_keys=approver_keys,
+        ledger=ledger,
+    )
+
     scale = 1 << frac_bits
     n = len(parties)
     dims = {len(updates[p]) for p in parties}
@@ -971,30 +1011,8 @@ def run_god_consortium_round(
                 robustness=verdict,
             )
 
-    # Governance over the *delivered* (included) set.
-    gating = max((dp_results[p] for p in god.included), key=lambda r: r.epsilon)
-    max_epsilon = gating.epsilon
-    approvers: list[str] = []
-    if requires_authorization(policy, max_epsilon):
-        _req_hash, approved, _req_canon = authorize_request(
-            gating,
-            job_id=f"consortium/{round_id}",
-            policy=policy,
-            approvals=approvals or {},
-            approver_keys=approver_keys or {},
-        )
-        approvers = list(approved)
-        ledger.append(
-            AUTHORIZED_EVENT,
-            authorization_payload(
-                job_id=f"consortium/{round_id}",
-                epsilon=max_epsilon,
-                threshold=policy.threshold,
-                approvers=approvers,
-                request_hash=_req_hash,
-                request_canon=_req_canon,
-            ),
-        )
+    # Governance over the *delivered* (included) set; authorization ran before dealing.
+    max_epsilon = max(dp_results[p].epsilon for p in god.included)
 
     per_silo_charge: dict[str, ChargeResult] = {}
     if budgets is not None:

@@ -242,3 +242,28 @@ def test_god_round_excludes_poisoning_party_and_still_delivers(tmp_path):
     honest = [p for p in parties if p != "bank2"]
     expected = [sum(updates[p][k] for p in honest) for k in range(dim)]
     assert all(abs(a - e) < 1e-3 for a, e in zip(res.aggregate, expected, strict=True))
+
+
+def test_unauthorized_god_round_deals_and_aggregates_nothing(tmp_path, monkeypatch):
+    from presidio_ai.dp.authorization import MPADenied, MPAPolicy
+    from presidio_ai.fl import consortium
+
+    def _never(*_a, **_k):
+        raise AssertionError("dealt or aggregated before authorization")
+
+    monkeypatch.setattr(consortium, "deal_input", _never)
+    monkeypatch.setattr(consortium, "god_aggregate", _never)
+    parties = [f"bank{i}" for i in range(3)]
+    ledger = Ledger(tmp_path / "r.jsonl", key=KEY)
+    with pytest.raises(MPADenied):
+        run_god_consortium_round(
+            round_id="god-unauth",
+            updates=_updates(parties, 2),
+            dp_results=_dp(parties),
+            threshold=2,
+            ledger=ledger,
+            group=G,
+            policy=MPAPolicy(threshold=1, min_epsilon=0.0, approvers=("cro",)),
+            rng=_rng(3),
+        )
+    assert verify_chain(ledger.path, key=KEY, missing_ok=True) == []

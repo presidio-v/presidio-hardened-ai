@@ -52,11 +52,14 @@ def federated_train(
     local_config: DPSGDConfig,
     seed: int = 0,
     aggregator: Aggregator | None = None,
+    secure_rng: bool = False,
 ) -> FederatedResult:
     """Run ``rounds`` of local DP-SGD + aggregation across ``clients``.
 
     Each round broadcasts the global model, every silo fine-tunes locally under DP
     starting from it, and the coordinator aggregates the updates (FedAvg by default).
+    ``secure_rng`` draws every silo's DP noise from a CSPRNG (production); the default seeded
+    PRNG is reproducible and predictable, for tests only.
     """
     if not clients:
         raise ValueError("at least one client is required")
@@ -79,6 +82,7 @@ def federated_train(
                 seed=seed + r * 100_003 + ci,  # distinct per round/client, deterministic
                 init_weights=weights,
                 init_bias=bias,
+                secure_rng=secure_rng,
             )
             updates.append((model.weights, model.bias, len(client.features)))
         weights, bias = aggregator.aggregate(updates)

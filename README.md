@@ -187,6 +187,8 @@ interface as the reference trainer; its `TrainedModel.result` uses this suite's
 accountant so evidence is consistent. A dedicated CI lane (`ci-torch.yml`) installs the
 extra and cross-validates Opacus' privacy accountant against ours. For production DP
 noise in the reference trainer, pass `secure_rng=True` (CSPRNG, non-deterministic).
+`pai dp-train` and `pai fl-train` use the CSPRNG by default; `--seed` gives a reproducible
+test run whose noise is predictable, and the command warns about it.
 
 
 ### Public-key evidence signing (Ed25519)

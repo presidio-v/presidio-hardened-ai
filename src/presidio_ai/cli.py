@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -69,6 +70,15 @@ _PARENT_HELP = "Upstream evidence content hash, lowercase hex (ADR-0002 parents;
 
 def _err(message: str) -> None:
     typer.echo(message, err=True)
+
+
+def _warn_if_seeded(seed: int | None) -> None:
+    """A seeded run draws predictable DP noise: say so, so it is never mistaken for private."""
+    if seed is not None:
+        _err(
+            "warning: --seed makes the DP noise reproducible and predictable; the reported "
+            "epsilon does not hold against anyone who knows the seed. Use only for testing."
+        )
 
 
 def _resolve_key(key: str | None) -> str:
@@ -340,7 +350,12 @@ def dp_train(
     delta: float = typer.Option(1e-5, "--delta", help="Budget/guarantee delta."),
     clip_norm: float = typer.Option(1.0, "--clip-norm", help="Per-example L2 gradient clip."),
     learning_rate: float = typer.Option(0.1, "--lr", help="Learning rate."),
-    seed: int = typer.Option(0, "--seed", help="RNG seed (deterministic)."),
+    seed: int | None = typer.Option(
+        None,
+        "--seed",
+        help="Seed the DP noise for a reproducible TEST run (predictable noise: not private). "
+        "Default: CSPRNG noise.",
+    ),
     key: str | None = typer.Option(None, "--key", help=f"Ledger/signing key (or ${_KEY_ENV})."),
     evidence_out: Path | None = typer.Option(
         None, "--evidence-out", help="Write D4 EvidenceRef JSON."
@@ -395,7 +410,10 @@ def dp_train(
             clip_norm=clip_norm,
             learning_rate=learning_rate,
         )
-        model = make_trainer("reference").train(features, labels, config, seed=seed)
+        _warn_if_seeded(seed)
+        model = make_trainer("reference").train(
+            features, labels, config, seed=seed or 0, secure_rng=seed is None
+        )
         ledger = Ledger(ledger_path, key=resolved_key)
         budget = EpsilonBudget(total_epsilon, delta, ledger)
         charge = budget.charge(model.result, job_id=job_id, parents=parents)
@@ -461,7 +479,12 @@ def fl_train(
     delta: float = typer.Option(1e-5, "--delta", help="Guarantee delta."),
     clip_norm: float = typer.Option(1.0, "--clip-norm", help="Per-example L2 gradient clip."),
     learning_rate: float = typer.Option(0.1, "--lr", help="Learning rate."),
-    seed: int = typer.Option(0, "--seed", help="RNG seed (deterministic)."),
+    seed: int | None = typer.Option(
+        None,
+        "--seed",
+        help="Seed the DP noise for a reproducible TEST run (predictable noise: not private). "
+        "Default: CSPRNG noise.",
+    ),
     secure_agg: bool = typer.Option(False, "--secure-agg", help="Use secure-sum aggregation."),
     charge: bool = typer.Option(
         False, "--charge", help="Charge each silo a per-silo epsilon budget."
@@ -525,9 +548,19 @@ def fl_train(
             clip_norm=clip_norm,
             learning_rate=learning_rate,
         )
-        aggregator = SecureSumAggregator(seed=seed) if secure_agg else FedAvgAggregator()
+        _warn_if_seeded(seed)
+        aggregator = (
+            SecureSumAggregator(seed=seed if seed is not None else secrets.randbits(63))
+            if secure_agg
+            else FedAvgAggregator()
+        )
         result = federated_train(
-            clients, rounds=rounds, local_config=config, seed=seed, aggregator=aggregator
+            clients,
+            rounds=rounds,
+            local_config=config,
+            seed=seed or 0,
+            aggregator=aggregator,
+            secure_rng=seed is None,
         )
         governance = None
         if charge:
