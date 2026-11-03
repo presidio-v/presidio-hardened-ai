@@ -14,4 +14,4 @@ pyo3 = { version = "0.29", features = ["extension-module"] }
 bulletproofs = "5.0"
 curve25519-dalek = { version = "4", features = ["serde"] }
 merlin = "3"
-rand = "0.8"
+rand = "0.10"
