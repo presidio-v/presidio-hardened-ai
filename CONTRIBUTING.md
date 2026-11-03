@@ -44,9 +44,8 @@ before it is merged.
 
 Every pull request — including a maintainer's own — is reviewed before it merges, by a code
 owner ([CODEOWNERS](.github/CODEOWNERS)) who is **not** the author of the change. Branch
-protection that enforces this on `main` (required review, code-owner review, stale-approval
-dismissal, last-push re-approval, admins included) is being set up; until it is in place the
-rule is applied by the maintainers.
+protection enforces this on `main`: required code-owner review, stale-approval dismissal,
+last-push re-approval, required status checks, and admins included.
 
 What a reviewer confirms before approving:
 
@@ -86,8 +85,8 @@ dependency within one module.
 same pull request.** Bug fixes must include a regression test that fails before the fix and
 passes after it. This is enforced in review.
 
-Coverage: CI runs `pytest tests/ -x -q` and does not enforce a coverage floor today.
-`pytest-cov` is in the `dev` extra, so `pytest --cov=presidio_ai` reports coverage locally.
+Coverage: CI runs `pytest tests/ -x -q --cov=presidio_ai` and fails below 85% statement
+coverage (`[tool.coverage.report] fail_under` in `pyproject.toml`). Run the same command locally.
 Golden vectors are part of the test bar: `tests/vectors/` holds verbatim copies of
 presidio-evidence's vectors (see `tests/vectors/PROVENANCE.txt`). Never edit them; new
 vectors are copied in as new files. A change that alters a signed byte fails

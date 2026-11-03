@@ -1,7 +1,7 @@
 """Input validation and output sanitisation (family-wide Presidio convention).
 
 All externally supplied scalars are bounds-checked and allow-listed before use;
-free-text identifiers are HTML-escaped before they appear in any rendered output.
+free-text values can be HTML-escaped with :func:`escape` by callers that render them.
 """
 
 from __future__ import annotations

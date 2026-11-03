@@ -76,8 +76,8 @@ party's individual update. (c) The soundness of the reported (ε, δ).
   validation set and canaries.
 - **Exclude-and-retry leak.** Comparing aggregates before and after an exclusion reveals
   the excluded (attributed) party's update.
-- **Transport deployment.** TLS, bind address, request size limits and rate limiting of
-  `serve()` are deployment configuration.
+- **Transport deployment.** Certificates, request size limits and rate limiting of
+  `serve()` are deployment configuration; it refuses plaintext beyond loopback.
 - **Timestamps** in ledger entries and evidence are claims, not trusted time.
 
 ## 2. Trust boundaries
@@ -154,10 +154,10 @@ The boundary names match [ARCHITECTURE.md](ARCHITECTURE.md#trust-boundaries).
 | Integer and numeric errors (CWE-190, CWE-681) | Masking is exact in GF(2⁶¹−1); fixed-point range documented; L2 proofs require `dim·B² < q` so squares cannot wrap; decimal strings avoid float round-trips in signed data. | Unit tests |
 | Hard-coded or exposed secrets (CWE-798) | No secrets in code. The keys in `tests/vectors/` are published test fixtures (see SECURITY.md). Secret scanning and push protection are enabled on the repository. | GitHub secret scanning; ruff `S105`/`S106` |
 | Insecure permissions (CWE-732) | Ledger file `0600`, directory `0700`; security log `0600`. | Unit tests |
-| Cleartext transmission (CWE-319) | Not countered in code: `serve()` speaks plain HTTP and binds loopback by default. Message integrity and party authentication come from Ed25519 signatures, and the masked vectors reveal nothing individually, but TLS is the deployer's. | Documented limit |
+| Cleartext transmission (CWE-319) | `serve()` serves HTTPS when given `ssl_certfile` and `ssl_keyfile` (Python's TLS defaults, TLS 1.2 minimum) and refuses to bind a non-loopback address without them (plaintext only on loopback, e.g. behind a TLS-terminating proxy). Message integrity and party authentication come from Ed25519 signatures independently of TLS, and the masked vectors reveal nothing individually. | `tests/test_transport.py` (`check_bind`) |
 | Unsafe deserialization (CWE-502) | Only `json.loads`; no pickle, YAML or object hooks. Floats rejected from canonical payloads; non-finite numbers rejected in gate files. | ruff `S` (S301, S506); CodeQL |
 | Uncaught exceptions as a pass (CWE-755) | Verification paths raise typed errors (`LedgerError`, `TransportError`, `ProofError`, …) that the CLI maps to non-zero exits; the round coordinator answers every payload with a status code. | Atheris harnesses; CLI tests |
-| Vulnerable dependencies (CWE-1104) | Two core runtime dependencies (`typer`, `presidio-evidence`); everything else is an optional extra. `pip-audit` runs in CI over the `dev` install (core, `cryptography`, the `[mpc]` server stack and ikigov-assess; not `[torch]` or `[nlp]`). Dependabot covers pip and GitHub Actions. Release, fuzz and SBOM toolchains are hash-pinned. The Rust crate's dependencies are pinned by `Cargo.lock` but not covered by Dependabot or `cargo audit` today. | `pip-audit`; Dependabot; OpenSSF Scorecard |
+| Vulnerable dependencies (CWE-1104) | Two core runtime dependencies (`typer`, `presidio-evidence`); everything else is an optional extra. `pip-audit` runs in CI over the `dev` install (core, `cryptography`, the `[mpc]` server stack and ikigov-assess; not `[torch]` or `[nlp]`). Dependabot covers pip, cargo (`rust/`) and GitHub Actions. Release, fuzz and SBOM toolchains are hash-pinned. The Rust crate's dependencies are pinned by `Cargo.lock`; `cargo audit` is not in CI yet. | `pip-audit`; Dependabot; OpenSSF Scorecard |
 
 These classes are checked continuously: **CodeQL** (Python) on every push and pull request
 to `main` and weekly; **ruff** with the `S` (flake8-bandit) security rule set as a required
@@ -165,14 +165,16 @@ CI step; `pip-audit` in CI; **OpenSSF Scorecard** weekly and on every push to `m
 **Atheris** fuzz harnesses over ledger parsing and verification and over the consortium wire
 format and input validators, on pull requests that touch the source and weekly. The
 `[mpc]` and `[torch]` lanes run on every pull request to `main`, the `[zk]` lane on pull
-requests that touch `rust/` or `src/presidio_ai/fl/`. CI does not enforce a
-coverage floor today, and there is no Rust static analysis (`clippy`, `cargo audit`) in CI.
+requests that touch `rust/` or `src/presidio_ai/fl/`. CI enforces an 85% statement-coverage
+floor (`fail_under` in `pyproject.toml`; about 90% measured). There is no Rust static analysis
+(`clippy`, `cargo audit`) in CI yet.
 
 **Reviews.** Before publication the code had a security review in two passes, with a
-follow-up review of its findings; the fixes shipped in 0.32.0, and two further findings were fixed in 0.32.1 under
-published security advisories (see the **Security** sections of [CHANGELOG.md](CHANGELOG.md)). That review was tool-assisted and run by the maintainer; it
-is not an independent third-party review. A required second-person code-owner review on
-`main` is being set up.
+follow-up review of its findings; the fixes shipped in 0.32.0, and two further findings
+were fixed in 0.32.1 under published security advisories (see the **Security** sections of
+[CHANGELOG.md](CHANGELOG.md)). That review was tool-assisted and run by the maintainer; it
+is not an independent third-party review. Since 2026-11-03 every change to `main` needs a
+second-person code-owner review, enforced by branch protection for admins too.
 
 ## Conclusion
 

@@ -11,6 +11,7 @@ from presidio_ai.fl.secure_agg import PRIME, SecureAggregationSession, dequantiz
 from presidio_ai.fl.transport import (
     RoundCoordinator,
     TransportError,
+    check_bind,
     decode_submission,
     encode_command,
     encode_submission,
@@ -140,3 +141,22 @@ def test_coordinator_identity_must_be_trusted():
     sess = SecureAggregationSession(["A", "B"], dim=1, threshold=2, rng=random.Random(1))  # noqa: S311
     with pytest.raises(TransportError, match="coordinator_id"):
         RoundCoordinator(sess, round_id="r1", identity_trust={"A": TRUST["A"]}, coordinator_id="x")
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
+def test_plaintext_bind_allowed_on_loopback(host):
+    check_bind(host, ssl_certfile=None, ssl_keyfile=None)
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "10.0.0.5", "coord.example"])  # noqa: S104
+def test_plaintext_bind_refused_beyond_loopback(host):
+    with pytest.raises(TransportError, match="plaintext"):
+        check_bind(host, ssl_certfile=None, ssl_keyfile=None)
+    check_bind(host, ssl_certfile="c.pem", ssl_keyfile="k.pem")
+
+
+def test_half_configured_tls_refused():
+    with pytest.raises(TransportError, match="both"):
+        check_bind("0.0.0.0", ssl_certfile="c.pem", ssl_keyfile=None)  # noqa: S104
+    with pytest.raises(TransportError, match="both"):
+        check_bind("127.0.0.1", ssl_certfile=None, ssl_keyfile="k.pem")

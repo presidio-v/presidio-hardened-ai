@@ -1,6 +1,9 @@
 # presidio-hardened-ai
 
-> v0.30.0 — **Training-time privacy controls (P1–P4):** tamper-evident DP ε-budgets,
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/presidio-v/presidio-hardened-ai/badge)](https://scorecard.dev/viewer/?uri=github.com/presidio-v/presidio-hardened-ai)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16301/badge)](https://www.bestpractices.dev/projects/16301)
+
+> v0.32.1 — **Training-time privacy controls (P1–P4):** tamper-evident DP ε-budgets,
 > n-of-m (MPA) authorized training, malicious-secure guaranteed-output-delivery consortium
 > rounds with zero-knowledge bounded-norm (L∞/L2) input validation, and Ed25519-signed
 > evidence the IKI-Gov governance spine verifies from the public key alone.
@@ -266,8 +269,8 @@ export_evidence(refs, "audit/evidence.json", use_case="fraud-scoring")
 ## Security
 
 See [SECURITY.md](SECURITY.md). Controls in P1: keyed (HMAC-SHA256) tamper-evident
-ledger; commitments-only persistence; strict input validation + output escaping;
-structural-only security log at `~/.presidio-ai/security.log`; per-session abuse
+ledger; commitments-only persistence; strict input validation (`sanitize.escape()` for
+callers that render free text); structural-only security log at `~/.presidio-ai/security.log`; per-session abuse
 guard; `0600`/`0700` file permissions.
 
 ---
@@ -321,11 +324,26 @@ the contact in [SECURITY.md](SECURITY.md)).
 | P4 | v0.11.0–v0.18.0 | Consortium secure aggregation: exact field masking, dropout recovery, `[mpc]` authenticated key agreement, malicious-secure (Feldman VSS + signed survivor-set + homomorphic check) |
 | P4 | v0.19.0–v0.24.0 | Zero-knowledge bounded-norm input validation (L∞/L2); pluggable MODP / Ristretto255+Bulletproofs backend |
 | P4 | v0.25.0–v0.29.0 | Guaranteed output delivery (honest-majority robust aggregation) + whole-consortium proof aggregation |
-| **P4** | **v0.30.0** | **Byzantine-ML robustness gate: aggregate validation + rollback — current** |
+| P4 | v0.30.0 | Byzantine-ML robustness gate: aggregate validation + rollback |
+| — | v0.31.0–v0.32.0 | Strict canonical JSON, provenance parents, presidio-evidence dependency; first public release |
+| **—** | **v0.32.1** | **Security fixes: CSPRNG DP noise in the CLI, MPA before aggregation — current** |
+
+Next 12 months (to 2027-Q4), planned work only:
+
+- **Now (2026-Q4)** — OpenSSF Best Practices silver; hash-pinned installs in every CI lane;
+  Rust static analysis (`clippy`, `cargo audit`) in the `[zk]` lane.
+- **Next (2027-H1)** — the first production build and benchmarks of the `[mpc]` and `[zk]`
+  lanes on real infrastructure (see *Working with us*).
+- **Later (under evaluation)** — the items ADR-0007 defers: a per-party cosine-band ZK
+  increment and robust aggregation under MPC for a malicious majority of contributions.
 
 Seven accepted ADRs (`docs/adr/`, see the [index](docs/adr/README.md)) cover the P4 arc.
 See [PRESIDIO-REQ.md](PRESIDIO-REQ.md) for the full deliberation log and
 [CHANGELOG.md](CHANGELOG.md) for the release summary.
+
+Governance: [GOVERNANCE.md](GOVERNANCE.md). Architecture, components and trust boundaries:
+[ARCHITECTURE.md](ARCHITECTURE.md). Security assurance case: [ASSURANCE.md](ASSURANCE.md).
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Compatibility: [SEMVER.md](SEMVER.md).
 
 ---
 

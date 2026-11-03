@@ -18,8 +18,9 @@ nothing individually. Every message is **signed** with the sender's Ed25519 iden
 party id is authenticated by the message, not by the connection. :class:`RoundCoordinator`
 enforces one submission per party, aggregates exactly once (when every expected party
 has submitted, or on a signed ``close`` from the coordinator identity) and serves only
-that cached result, so no caller can obtain two aggregates over different sets. TLS, the
-bind address and rate limiting remain deployment configuration of the HTTP layer.
+that cached result, so no caller can obtain two aggregates over different sets. The HTTP
+layer serves TLS when given a certificate and key, and refuses to bind a non-loopback
+address without them; rate limiting remains deployment configuration.
 """
 
 from __future__ import annotations
@@ -34,6 +35,20 @@ from presidio_ai.hashing import sha256_hex
 
 class TransportError(RuntimeError):
     """Raised on a malformed protocol message (fail-closed)."""
+
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def check_bind(host: str, *, ssl_certfile: str | None, ssl_keyfile: str | None) -> None:
+    """Refuse a plaintext bind beyond loopback, and a half-configured TLS pair."""
+    if (ssl_certfile is None) != (ssl_keyfile is None):
+        raise TransportError("TLS needs both ssl_certfile and ssl_keyfile")
+    if ssl_certfile is None and host not in _LOOPBACK_HOSTS:
+        raise TransportError(
+            f"refusing to serve plaintext HTTP on {host!r}: pass ssl_certfile and ssl_keyfile, "
+            "or bind a loopback address behind a TLS-terminating proxy"
+        )
 
 
 @dataclass(frozen=True)
@@ -232,14 +247,18 @@ def serve(  # pragma: no cover - thin HTTP layer over RoundCoordinator, behind t
     host: str = "127.0.0.1",
     port: int = 8089,
     expected_parties: Sequence[str] | None = None,
+    ssl_certfile: str | None = None,
+    ssl_keyfile: str | None = None,
 ) -> None:
     """Serve a :class:`RoundCoordinator` over HTTP: ``POST /submit``, ``/close``, ``/aggregate``.
 
     Requires the ``[mpc]`` extra (``pip install 'presidio-hardened-ai[mpc]'``). Every
     request body is a signed message (see :func:`encode_submission` and
-    :func:`encode_command`); the HTTP layer adds nothing to the authentication. Run it
-    behind TLS.
+    :func:`encode_command`); the HTTP layer adds nothing to the authentication. With
+    ``ssl_certfile`` and ``ssl_keyfile`` it serves HTTPS (Python's TLS defaults: TLS 1.2
+    minimum); without them it binds loopback only (see :func:`check_bind`).
     """
+    check_bind(host, ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile)
     try:
         import uvicorn
         from starlette.applications import Starlette
@@ -277,4 +296,4 @@ def serve(  # pragma: no cover - thin HTTP layer over RoundCoordinator, behind t
             Route("/aggregate", route(coordinator.read), methods=["POST"]),
         ]
     )
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, ssl_certfile=ssl_certfile, ssl_keyfile=ssl_keyfile)

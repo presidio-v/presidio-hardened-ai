@@ -19,3 +19,6 @@ security_contact = "security@presidio-group.eu"
 [legal]
 copyright_holder = "PRESIDIO Group"
 license = "MIT"
+
+[badge]
+bestpractices_id = 16301
