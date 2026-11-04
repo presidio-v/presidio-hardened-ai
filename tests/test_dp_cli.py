@@ -109,4 +109,4 @@ def test_dp_charge_over_budget_exits_2(tmp_path, monkeypatch):
             "5000",
         ],
     )
-    assert r.exit_code == 2
+    assert r.exit_code == 4

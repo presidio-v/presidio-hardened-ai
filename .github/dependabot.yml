@@ -4,6 +4,15 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "pip"
+    # The --require-hashes lockfiles the workflows install from (see constraints/README.md).
+    directory: "/.github/constraints"
+    schedule:
+      interval: "weekly"
+    groups:
+      ci-lockfiles:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

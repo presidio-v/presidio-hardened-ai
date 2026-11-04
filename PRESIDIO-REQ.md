@@ -178,7 +178,7 @@ accountant). Orders scanned: 2…256.
 5. Budget `spent()` is re-derived from the **verified** ledger chain and **fails closed**
    if the ledger is tampered. *(test_budget)*
 6. A charge that would exceed the budget raises `BudgetExceeded`, records **no** entry,
-   and the CLI exits **2**. *(test_budget, test_dp_cli)*
+   and the CLI exits **2** (**4** since 0.33, so it differs from Click's usage error). *(test_budget, test_dp_cli)*
 7. Charge payloads contain **privacy parameters only** (no PII). *(test_budget)*
 8. DP evidence emits **D4** only, verifies under signature, and its content hash commits
    to the privacy parameters. *(test_dp_evidence)*
@@ -292,7 +292,7 @@ the trainer calls so the charged ε is exactly the run's guarantee (asserted in 
 3. Deterministic for a fixed seed. *(test_dp_trainer)*
 4. `TrainedModel.result.epsilon` equals `dpsgd_epsilon(config)`. *(test_dp_trainer)*
 5. Invalid data raises; `make_trainer("opacus")` raises NotImplementedError. *(test_dp_trainer)*
-6. CLI `dp-train` runs end-to-end (charge + D4 evidence), exit 2 over-budget, 1 on bad input. *(test_dp_trainer)*
+6. CLI `dp-train` runs end-to-end (charge + D4 evidence), exit 2 over-budget (4 since 0.33), 1 on bad input. *(test_dp_trainer)*
 
 ### Security note — randomness
 DP's guarantee assumes good randomness. The reference trainer uses a **seedable** PRNG
@@ -501,7 +501,7 @@ leaves the silo (unchanged from v0.5.0).
 1. `charge_federated` writes one charge entry to each silo's own (chain-verified) ledger. *(test_fl_governance)*
 2. With `--evidence-dir`, each silo's D4 evidence verifies under the Ed25519 public key. *(test_fl_governance)*
 3. Per-silo budgets are independent; a silo's ledger holds only its own charge. *(test_fl_governance)*
-4. Over-budget raises `BudgetExceeded` (CLI exit 2). *(test_fl_governance)*
+4. Over-budget raises `BudgetExceeded` (CLI exit 2; 4 since 0.33). *(test_fl_governance)*
 5. CLI `--charge` reports per-silo remaining ε + evidence path; missing `--total-epsilon`/
    `--ledger-dir` exits 1. *(test_fl_governance)*
 

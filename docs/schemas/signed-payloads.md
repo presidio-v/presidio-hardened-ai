@@ -100,8 +100,8 @@ equals `content_hash`, and `sha256sum` of the input file equals `source_commitme
 New ledger entries carry `"canon": 1` next to `seq`, `timestamp`, `event`,
 `payload` and `prev_hash`, and the tag is covered by the entry MAC. New
 authorization requests carry `"canon": 1` as a top-level key. Untagged entries and
-requests predate 0.31 and verify only through the frozen legacy encoder; see
-`MIGRATION.md`.
+requests predate 0.31; the legacy encoder that verified them was removed in 0.32, so
+they now fail verification. See `MIGRATION.md`.
 
 ## `parents` (presidio-evidence ADR-0002)
 
