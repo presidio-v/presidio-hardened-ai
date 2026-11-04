@@ -131,7 +131,7 @@ changing the `EvidenceRef` shape, which matches the
 - **Local trust** — approver keys are a local verifier trust store; no network resolution.
   The recorded `mpa-authorized` ledger entry holds approver ids and the request hash only.
 - **Fail-closed** — insufficient or invalid approval rejects the charge and records nothing
-  (CLI exit 3); over-budget is exit 2.
+  (CLI exit 3); over-budget is exit 4.
 
 
 ### Federated learning (v0.5.0)

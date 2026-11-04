@@ -7,6 +7,9 @@ Commands:
   * ``pai version`` — print the tool version.
 
 Confirmations go to stderr so ``--quiet`` keeps stdout pure JSON (family convention).
+
+Exit codes: 0 success, 1 invalid input or failed verification, 2 usage error (reported by
+Click), 3 authorization denied, 4 budget exceeded.
 """
 
 from __future__ import annotations
@@ -65,6 +68,9 @@ from presidio_ai.security import increment_session_count, log_security_event, se
 app = typer.Typer(add_completion=False, help="Training-time privacy evidence layer.")
 
 _KEY_ENV = "PRESIDIO_AI_LEDGER_KEY"
+# Distinct from Click's usage-error code 2, so a script can tell a refusal from a typo.
+EXIT_AUTHORIZATION_DENIED = 3
+EXIT_BUDGET_EXCEEDED = 4
 _PARENT_HELP = "Upstream evidence content hash, lowercase hex (ADR-0002 parents; repeatable)."
 
 
@@ -419,7 +425,7 @@ def dp_train(
         charge = budget.charge(model.result, job_id=job_id, parents=parents)
     except BudgetExceeded as exc:
         _err(f"BUDGET EXCEEDED: {exc}")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_BUDGET_EXCEEDED) from exc
     except (ValidationError, ValueError, LedgerError) as exc:
         _err(f"error: {exc}")
         raise typer.Exit(1) from exc
@@ -585,7 +591,7 @@ def fl_train(
         raise typer.Exit(1) from exc
     except BudgetExceeded as exc:
         _err(f"BUDGET EXCEEDED: {exc}")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_BUDGET_EXCEEDED) from exc
 
     log_security_event(
         {
@@ -798,10 +804,10 @@ def dp_charge(
         )
     except MPADenied as exc:
         _err(f"AUTHORIZATION DENIED: {exc}")
-        raise typer.Exit(3) from exc
+        raise typer.Exit(EXIT_AUTHORIZATION_DENIED) from exc
     except BudgetExceeded as exc:
         _err(f"BUDGET EXCEEDED: {exc}")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_BUDGET_EXCEEDED) from exc
     except (ValueError, LedgerError) as exc:
         _err(f"error: {exc}")
         raise typer.Exit(1) from exc
@@ -996,10 +1002,10 @@ def consortium_round(
         )
     except MPADenied as exc:
         _err(f"AUTHORIZATION DENIED: {exc}")
-        raise typer.Exit(3) from exc
+        raise typer.Exit(EXIT_AUTHORIZATION_DENIED) from exc
     except BudgetExceeded as exc:
         _err(f"BUDGET EXCEEDED: {exc}")
-        raise typer.Exit(2) from exc
+        raise typer.Exit(EXIT_BUDGET_EXCEEDED) from exc
     except (KeyError, ValueError, ConsortiumError, LedgerError, ValidationError) as exc:
         _err(f"error: {exc}")
         raise typer.Exit(1) from exc

@@ -26,8 +26,9 @@ jobs:
 
       - name: Install with the torch extra
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install -e ".[dev,torch]"
+          python -m pip install --require-hashes -r .github/constraints/ci-toolchain.txt
+          python -m pip install --require-hashes -r .github/constraints/dev-torch.txt
+          python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Lint (torch-only tests)
         run: |

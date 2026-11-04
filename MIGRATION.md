@@ -1,5 +1,13 @@
 # Migration notes
 
+## 0.33.0: over-budget exits 4
+
+`dp-train`, `dp-charge`, `fl-train` and `consortium-round` now exit **4** when a charge
+would exceed the ε budget; they exited 2 before. Typer/Click also exits 2 on a usage error,
+so a script could not tell a budget refusal from a mistyped option without reading stderr.
+Scripts that test for exit 2 after a charge should test for 4. Exit 3 (authorization
+denied) and exit 1 are unchanged.
+
 ## 0.32.0: presidio-evidence dependency, legacy encoder removed, Python 3.11+
 
 ### What changed

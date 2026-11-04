@@ -157,7 +157,7 @@ The boundary names match [ARCHITECTURE.md](ARCHITECTURE.md#trust-boundaries).
 | Cleartext transmission (CWE-319) | `serve()` serves HTTPS when given `ssl_certfile` and `ssl_keyfile` (Python's TLS defaults, TLS 1.2 minimum) and refuses to bind a non-loopback address without them (plaintext only on loopback, e.g. behind a TLS-terminating proxy). Message integrity and party authentication come from Ed25519 signatures independently of TLS, and the masked vectors reveal nothing individually. | `tests/test_transport.py` (`check_bind`) |
 | Unsafe deserialization (CWE-502) | Only `json.loads`; no pickle, YAML or object hooks. Floats rejected from canonical payloads; non-finite numbers rejected in gate files. | ruff `S` (S301, S506); CodeQL |
 | Uncaught exceptions as a pass (CWE-755) | Verification paths raise typed errors (`LedgerError`, `TransportError`, `ProofError`, …) that the CLI maps to non-zero exits; the round coordinator answers every payload with a status code. | Atheris harnesses; CLI tests |
-| Vulnerable dependencies (CWE-1104) | Two core runtime dependencies (`typer`, `presidio-evidence`); everything else is an optional extra. `pip-audit` runs in CI over the `dev` install (core, `cryptography`, the `[mpc]` server stack and ikigov-assess; not `[torch]` or `[nlp]`). Dependabot covers pip, cargo (`rust/`) and GitHub Actions. Release, fuzz and SBOM toolchains are hash-pinned. The Rust crate's dependencies are pinned by `Cargo.lock`; `cargo audit` is not in CI yet. | `pip-audit`; Dependabot; OpenSSF Scorecard |
+| Vulnerable dependencies (CWE-1104) | Two core runtime dependencies (`typer`, `presidio-evidence`); everything else is an optional extra. `pip-audit` runs in CI over the `dev` install (core, `cryptography`, the `[mpc]` server stack and ikigov-assess; not `[torch]` or `[nlp]`). Dependabot covers pip (including the CI lockfiles), cargo (`rust/`) and GitHub Actions. Every CI lane and the release, fuzz and SBOM toolchains install from `--require-hashes` lockfiles. The Rust crate's dependencies are pinned by `Cargo.lock`, and the `[zk]` lane runs `cargo audit` against it. | `pip-audit`; Dependabot; OpenSSF Scorecard |
 
 These classes are checked continuously: **CodeQL** (Python) on every push and pull request
 to `main` and weekly; **ruff** with the `S` (flake8-bandit) security rule set as a required
@@ -166,8 +166,9 @@ CI step; `pip-audit` in CI; **OpenSSF Scorecard** weekly and on every push to `m
 format and input validators, on pull requests that touch the source and weekly. The
 `[mpc]` and `[torch]` lanes run on every pull request to `main`, the `[zk]` lane on pull
 requests that touch `rust/` or `src/presidio_ai/fl/`. CI enforces an 85% statement-coverage
-floor (`fail_under` in `pyproject.toml`; about 90% measured). There is no Rust static analysis
-(`clippy`, `cargo audit`) in CI yet.
+floor (`fail_under` in `pyproject.toml`; about 90% measured). The `[zk]` lane runs `clippy`
+with warnings as errors and `cargo audit` over the Rust crate; the crate has no enforced
+formatter.
 
 **Reviews.** Before publication the code had a security review in two passes, with a
 follow-up review of its findings; the fixes shipped in 0.32.0, and two further findings

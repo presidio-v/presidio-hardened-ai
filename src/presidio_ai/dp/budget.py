@@ -12,8 +12,9 @@ multiplier, sampling rate, steps) — these are accounting facts, not PII, and m
 be recorded to make the guarantee auditable.
 
 Since 0.31 those parameters are recorded as decimal strings (schema ``dp-result@1``,
-``docs/schemas/signed-payloads.md``); pre-0.31 entries hold floats. :meth:`spent`
-sums both forms exactly with :class:`~decimal.Decimal`. Half-even rounding at 12
+``docs/schemas/signed-payloads.md``). Pre-0.31 entries held floats; since 0.32 they fail
+chain verification, so :meth:`spent` only ever sums decimal strings, exactly, with
+:class:`~decimal.Decimal`. Half-even rounding at 12
 fractional digits can understate a recorded epsilon by at most 5e-13 per charge,
 which the 1e-12 admission tolerance already absorbs for any realistic charge count.
 """

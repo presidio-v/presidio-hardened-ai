@@ -125,7 +125,7 @@ pai dp-charge --ledger audit/ledger.jsonl --total-epsilon 10 --job-id fraud-ft \
 
 Approvals are HMAC countersignatures bound to the job's privacy parameters (no
 replay across jobs); the authorization is recorded to the ledger before the charge.
-Exit codes: `2` budget exceeded, `3` authorization denied.
+Exit codes: `3` authorization denied, `4` budget exceeded (`2` is reserved for usage errors).
 
 
 ### Train with DP-SGD
@@ -330,7 +330,7 @@ the contact in [SECURITY.md](SECURITY.md)).
 
 Next 12 months (to 2027-Q4), planned work only:
 
-- **Now (2026-Q4)** — OpenSSF Best Practices silver; hash-pinned installs in every CI lane;
+- **Done (2026-Q4)** — OpenSSF Best Practices silver; hash-pinned installs in every CI lane;
   Rust static analysis (`clippy`, `cargo audit`) in the `[zk]` lane.
 - **Next (2027-H1)** — the first production build and benchmarks of the `[mpc]` and `[zk]`
   lanes on real infrastructure (see *Working with us*).

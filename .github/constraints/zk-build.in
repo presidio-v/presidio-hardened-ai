@@ -1,0 +1,2 @@
+# maturin builds the native [zk] wheel in ci-zk.yml.
+maturin>=1.5,<2
