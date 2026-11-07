@@ -46,15 +46,27 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09
         with:
           toolchain: stable
+          components: clippy
+
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --all-targets --manifest-path rust/Cargo.toml -- -D warnings
+
+      - name: cargo audit (RustSec advisories against Cargo.lock)
+        run: |
+          cargo install cargo-audit --locked --version 0.22.2
+          cargo audit --file rust/Cargo.lock
 
       - name: Build + install the native backend (maturin)
         run: |
-          python -m pip install --upgrade pip maturin
+          python -m pip install --require-hashes -r .github/constraints/ci-toolchain.txt
+          python -m pip install --require-hashes -r .github/constraints/zk-build.txt
           maturin build --release --locked -m rust/Cargo.toml --out dist
-          pip install dist/*.whl
+          python -m pip install --no-deps dist/*.whl
 
       - name: Install the package (dev)
-        run: pip install -e ".[dev]"
+        run: |
+          python -m pip install --require-hashes -r .github/constraints/dev.txt
+          python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Lint (zk lane tests + backend)
         run: |

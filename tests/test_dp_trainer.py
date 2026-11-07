@@ -184,7 +184,7 @@ def test_cli_dp_train_over_budget_exits_2(tmp_path, monkeypatch):
             "100",
         ],
     )
-    assert r.exit_code == 2
+    assert r.exit_code == 4
 
 
 def test_cli_dp_train_malformed_input_exits_1(tmp_path, monkeypatch):

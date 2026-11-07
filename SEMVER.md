@@ -24,11 +24,9 @@ The public API is:
   |---|---|
   | 0 | success; for `verify`, the chain is intact (and matches `--expect-entry` / `--min-entries` when given) |
   | 1 | failure: a tampered, truncated or missing ledger, a missing key, invalid input, a refused gate certificate, or any other error |
-  | 2 | the charge would exceed the ε budget (`dp-train`, `dp-charge`, `fl-train`, `consortium-round`) |
+  | 2 | command-line usage error, reported by Typer/Click before any command runs |
   | 3 | n-of-m authorization denied (`dp-charge`, `consortium-round`) |
-
-  Typer also exits 2 on a command-line usage error, before any command runs. A caller that
-  must tell the two apart reads stderr (`BUDGET EXCEEDED:` prefixes a budget refusal);
+  | 4 | the charge would exceed the ε budget (`dp-train`, `dp-charge`, `fl-train`, `consortium-round`); 2 before 0.33 |
 - the signed payload schemas in [`docs/schemas/signed-payloads.md`](docs/schemas/signed-payloads.md)
   (`dp-result@1`, `consortium-round@1`, `ingest-record@1`, ledger entries and authorization
   requests), the per-field precisions in `presidio_ai.numeric.PRECISION`, and the

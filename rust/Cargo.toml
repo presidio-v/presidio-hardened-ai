@@ -3,7 +3,7 @@ name = "presidio_ai_zk"
 version = "0.1.0"
 edition = "2021"
 description = "Ristretto255 + Bulletproofs bounded-norm proofs for presidio-hardened-ai (ADR-0004)"
-license = "Apache-2.0"
+license = "MIT"
 
 [lib]
 name = "presidio_ai_zk"

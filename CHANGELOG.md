@@ -32,6 +32,16 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
   assurance documents; code owners; `allowed_signers` for release-tag verification.
 
 ### Changed
+- **Breaking (CLI):** a charge over the ε budget now exits **4** instead of 2, so it no
+  longer shares a code with Typer/Click's usage error. Exit 3 (authorization denied) is
+  unchanged. See `MIGRATION.md`.
+- Every CI lane installs from `--require-hashes` lockfiles (`.github/constraints/dev.txt`,
+  `dev-torch.txt`, `zk-build.txt`), which Dependabot keeps current.
+- The `[zk]` lane runs `cargo clippy -D warnings` and `cargo audit` over the Rust crate.
+- The Rust crate `presidio_ai_zk` is licensed MIT, like the rest of the repository; it
+  was marked Apache-2.0.
+- The `signed-payloads.md` schema notes and the `dp.budget` docstring no longer describe
+  the legacy encoder and float charges as still verifiable; both were removed in 0.32.
 - CI workflows pin third-party actions to commit SHAs.
 - CI enforces an 85% statement-coverage floor; Dependabot also tracks the Rust crate.
 - The README and `SECURITY.md` no longer claim that the package HTML-escapes output: it
