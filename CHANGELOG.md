@@ -10,6 +10,8 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-11-14
+
 ### Security
 - **Malformed ledger lines now fail as `LedgerError`.** Every field of a ledger entry is
   type-checked on read (object shape, unknown or missing fields, integer `seq` and `canon`,
@@ -272,6 +274,9 @@ RDP), MPA, DP-SGD (reference + Opacus), federated learning + per-silo governance
 signing, and the P4 secure-aggregation core through malicious-security hardening and bounded-norm
 input validation. See `PRESIDIO-REQ.md` and `docs/adr/`.
 
+[0.33.0]: https://github.com/presidio-v/presidio-hardened-ai/releases/tag/v0.33.0
+[0.32.1]: https://github.com/presidio-v/presidio-hardened-ai/releases/tag/v0.32.1
+[0.32.0]: https://github.com/presidio-v/presidio-hardened-ai/releases/tag/v0.32.0
 [0.30.0]: https://github.com/presidio-v/presidio-hardened-ai/releases/tag/v0.30.0
 [0.29.0]: https://github.com/presidio-v/presidio-hardened-ai/releases/tag/v0.29.0
 [0.28.0]: https://github.com/presidio-v/presidio-hardened-ai/releases/tag/v0.28.0
