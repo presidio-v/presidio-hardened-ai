@@ -10,7 +10,7 @@ accepted ADRs. The cross-repo `EvidenceRef@1` contract is **unchanged** througho
 
 ## [Unreleased]
 
-## [0.33.0] — 2026-11-10
+## [0.33.0] — 2026-11-14
 
 ### Security
 - **Malformed ledger lines now fail as `LedgerError`.** Every field of a ledger entry is
