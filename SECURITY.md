@@ -4,6 +4,7 @@
 
 | Version | Supported |
 |---------|-----------|
+| 0.33.x  | Yes       |
 | 0.32.x  | Yes       |
 | < 0.32  | No (never published; 0.32.0 is the first public release) |
 

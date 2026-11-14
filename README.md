@@ -3,7 +3,7 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/presidio-v/presidio-hardened-ai/badge)](https://scorecard.dev/viewer/?uri=github.com/presidio-v/presidio-hardened-ai)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16301/badge)](https://www.bestpractices.dev/projects/16301)
 
-> v0.32.1 — **Training-time privacy controls (P1–P4):** tamper-evident DP ε-budgets,
+> v0.33.0 — **Training-time privacy controls (P1–P4):** tamper-evident DP ε-budgets,
 > n-of-m (MPA) authorized training, malicious-secure guaranteed-output-delivery consortium
 > rounds with zero-knowledge bounded-norm (L∞/L2) input validation, and Ed25519-signed
 > evidence the IKI-Gov governance spine verifies from the public key alone.
@@ -326,7 +326,8 @@ the contact in [SECURITY.md](SECURITY.md)).
 | P4 | v0.25.0–v0.29.0 | Guaranteed output delivery (honest-majority robust aggregation) + whole-consortium proof aggregation |
 | P4 | v0.30.0 | Byzantine-ML robustness gate: aggregate validation + rollback |
 | — | v0.31.0–v0.32.0 | Strict canonical JSON, provenance parents, presidio-evidence dependency; first public release |
-| **—** | **v0.32.1** | **Security fixes: CSPRNG DP noise in the CLI, MPA before aggregation — current** |
+| — | v0.32.1 | Security fixes: CSPRNG DP noise in the CLI, MPA before aggregation |
+| **—** | **v0.33.0** | **Ledger parsing hardened and fuzzed, HTTPS-or-loopback FL transport, over-budget exit 4 — current** |
 
 Next 12 months (to 2027-Q4), planned work only:
 
